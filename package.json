@@ -22,6 +22,10 @@
     "bench": "node ./dist/bench/index.bench.mjs",
     "prepare": "npm run build"
   },
+  "dependencies": {
+    "@hazae41/arrays": "^1.0.0",
+    "@hazae41/future": "^1.0.3"
+  },
   "devDependencies": {
     "@hazae41/deimos": "^1.0.6",
     "@hazae41/phobos": "^1.0.10",
@@ -53,8 +57,5 @@
     "esmodules",
     "tested",
     "unit-tested"
-  ],
-  "dependencies": {
-    "@hazae41/arrays": "^1.0.0"
-  }
+  ]
 }
