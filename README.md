@@ -27,14 +27,14 @@ Create a pool of 5 WebSockets
 ```tsx
 import { Pool } from "@hazae41/piscine"
 
-const pool = new Pool<WebSocket>(({ index, destroy }) => {
+const pool = new Pool<WebSocket>(({ pool, index, signal }) => {
   const socket = new WebSocket(`/api`)
 
   const onCloseOrError = () => {
     socket.removeEventListener("error", onCloseOrError)
     socket.removeEventListener("close", onCloseOrError)
 
-    destroy()
+    pool.delete(socket)
   }
 
   socket.addEventListener("error", onCloseOrError)
