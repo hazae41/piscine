@@ -85,22 +85,7 @@ export class Pool<T> {
     const index = this.#allElements.indexOf(element)
 
     if (index === -1)
-      throw new Error(`Invalid element`)
-
-    this.deleteIndex(index)
-    return index
-  }
-
-  /**
-   * Delete the element at the given index, restart the index, and return the element
-   * @param index 
-   * @returns 
-   */
-  deleteIndex(index: number): T {
-    const element = this.#allElements.at(index)
-
-    if (element === undefined)
-      throw new Error(`Invalid index`)
+      return
 
     delete this.#allElements[index]
     this.#openElements.delete(element)
@@ -109,7 +94,7 @@ export class Pool<T> {
     this.events.dispatchEvent(event, "deleted").catch(console.warn)
 
     this.#start(index)
-    return element
+    return index
   }
 
   /**
