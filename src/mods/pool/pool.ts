@@ -21,7 +21,8 @@ export interface PoolEntry<T> {
 }
 
 export type PoolEvents<T> = {
-  element: MessageEvent<PoolEntry<T>>
+  created: MessageEvent<PoolEntry<T>>
+  deleted: MessageEvent<PoolEntry<T>>
 }
 
 export class Pool<T> {
@@ -69,8 +70,8 @@ export class Pool<T> {
     this.#allElements[index] = element
     this.#openElements.add(element)
 
-    const event = new MessageEvent("element", { data: { index, element } })
-    this.events.dispatchEvent(event, "element").catch(console.warn)
+    const event = new MessageEvent("created", { data: { index, element } })
+    this.events.dispatchEvent(event, "created").catch(console.warn)
 
     return element
   }
@@ -103,6 +104,9 @@ export class Pool<T> {
 
     delete this.#allElements[index]
     this.#openElements.delete(element)
+
+    const event = new MessageEvent("deleted", { data: { index, element } })
+    this.events.dispatchEvent(event, "deleted").catch(console.warn)
 
     this.#start(index)
     return element
