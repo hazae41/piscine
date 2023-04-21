@@ -6,15 +6,14 @@ export interface PoolParams {
   readonly signal?: AbortSignal
 }
 
-export interface PoolCreatorParams {
+export interface PoolCreatorParams<T> {
+  readonly pool: Pool<T>
   readonly index: number
   readonly signal?: AbortSignal
-
-  destroy(): void
 }
 
 export type PoolCreator<T> =
-  (params: PoolCreatorParams) => Promise<T>
+  (params: PoolCreatorParams<T>) => Promise<T>
 
 export interface PoolEntry<T> {
   readonly index: number,
@@ -65,14 +64,7 @@ export class Pool<T> {
   async #create(index: number) {
     const { signal } = this.params
 
-    const destroy = () => {
-      delete this.#allElements[index]
-      this.#openElements.delete(element)
-
-      this.#start(index)
-    }
-
-    const element = await this.create({ index, signal, destroy })
+    const element = await this.create({ pool: this, index, signal })
 
     this.#allElements[index] = element
     this.#openElements.add(element)
@@ -80,6 +72,39 @@ export class Pool<T> {
     const event = new MessageEvent("element", { data: { index, element } })
     this.events.dispatchEvent(event, "element").catch(console.warn)
 
+    return element
+  }
+
+  /**
+   * Delete the index at the given element, restart the index, and return the index
+   * @param element 
+   * @returns 
+   */
+  delete(element: T) {
+    const index = this.#allElements.indexOf(element)
+
+    if (index === -1)
+      throw new Error(`Invalid element`)
+
+    this.deleteIndex(index)
+    return index
+  }
+
+  /**
+   * Delete the element at the given index, restart the index, and return the element
+   * @param index 
+   * @returns 
+   */
+  deleteIndex(index: number): T {
+    const element = this.#allElements.at(index)
+
+    if (element === undefined)
+      throw new Error(`Invalid index`)
+
+    delete this.#allElements[index]
+    this.#openElements.delete(element)
+
+    this.#start(index)
     return element
   }
 
@@ -96,6 +121,15 @@ export class Pool<T> {
    */
   [Symbol.iterator]() {
     return this.#openElements.values()
+  }
+
+  /**
+   * Get the index of the given element
+   * @param element 
+   * @returns 
+   */
+  indexOf(element: T) {
+    return this.#allElements.indexOf(element)
   }
 
   /**
@@ -131,13 +165,13 @@ export class Pool<T> {
    * @returns 
    */
   randomSync() {
-    const circuits = [...this.#openElements]
-    const circuit = Arrays.random(circuits)
+    if (!this.#openElements.size)
+      throw new Error(`Empty pool`)
 
-    if (!circuit)
-      throw new Error(`No circuit in pool`)
+    const elements = [...this.#openElements]
+    const element = Arrays.random(elements)
 
-    return circuit
+    return element!
   }
 
   /**
@@ -155,13 +189,13 @@ export class Pool<T> {
    * @returns 
    */
   cryptoRandomSync() {
-    const circuits = [...this.#openElements]
-    const circuit = Arrays.cryptoRandom(circuits)
+    if (!this.#openElements.size)
+      throw new Error(`Empty pool`)
 
-    if (!circuit)
-      throw new Error(`No circuit in pool`)
+    const elements = [...this.#openElements]
+    const element = Arrays.cryptoRandom(elements)
 
-    return circuit
+    return element!
   }
 
 }

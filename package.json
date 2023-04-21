@@ -23,7 +23,7 @@
     "prepare": "npm run build"
   },
   "dependencies": {
-    "@hazae41/arrays": "^1.0.0",
+    "@hazae41/arrays": "^1.1.1",
     "@hazae41/future": "^1.0.3"
   },
   "devDependencies": {
