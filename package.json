@@ -24,7 +24,8 @@
   },
   "dependencies": {
     "@hazae41/arrays": "^1.1.1",
-    "@hazae41/future": "^1.0.3"
+    "@hazae41/future": "^1.0.3",
+    "@hazae41/plume": "^1.0.1"
   },
   "devDependencies": {
     "@hazae41/deimos": "^1.0.6",

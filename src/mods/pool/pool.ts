@@ -1,5 +1,5 @@
 import { Arrays } from "@hazae41/arrays";
-import { AsyncEventTarget } from "libs/events/target.js";
+import { AsyncEventTarget } from "@hazae41/plume";
 
 export interface PoolParams {
   readonly capacity?: number
