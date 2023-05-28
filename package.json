@@ -25,19 +25,20 @@
   "dependencies": {
     "@hazae41/arrays": "^1.1.1",
     "@hazae41/future": "^1.0.3",
-    "@hazae41/plume": "^1.0.1"
+    "@hazae41/plume": "^2.0.6",
+    "@hazae41/result": "^1.0.34"
   },
   "devDependencies": {
     "@hazae41/deimos": "^1.0.6",
     "@hazae41/phobos": "^1.0.10",
-    "@rollup/plugin-typescript": "^11.0.0",
-    "@types/node": "^18.11.18",
-    "rimraf": "^4.1.0",
-    "rollup": "^3.10.0",
-    "rollup-plugin-dts": "^5.1.1",
-    "rollup-plugin-node-externals": "^5.1.0",
-    "tslib": "^2.5.0",
-    "typescript": "^4.9.4"
+    "@rollup/plugin-typescript": "^11.1.1",
+    "@types/node": "^20.2.5",
+    "rimraf": "^5.0.1",
+    "rollup": "^3.23.0",
+    "rollup-plugin-dts": "^5.3.0",
+    "rollup-plugin-node-externals": "^6.0.1",
+    "tslib": "^2.5.2",
+    "typescript": "^5.0.4"
   },
   "exports": {
     ".": {

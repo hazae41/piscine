@@ -1,5 +1,5 @@
 import { Arrays } from "@hazae41/arrays";
-import { AsyncEventTarget } from "@hazae41/plume";
+import { SuperEventTarget } from "@hazae41/plume";
 
 export interface PoolParams {
   readonly capacity?: number
@@ -21,13 +21,13 @@ export interface PoolEntry<T> {
 }
 
 export type PoolEvents<T> = {
-  created: MessageEvent<PoolEntry<T>>
-  deleted: MessageEvent<PoolEntry<T>>
+  created: PoolEntry<T>
+  deleted: PoolEntry<T>
 }
 
 export class Pool<T> {
 
-  readonly events = new AsyncEventTarget<PoolEvents<T>>()
+  readonly events = new SuperEventTarget<PoolEvents<T>>()
 
   readonly capacity: number
 
@@ -59,7 +59,7 @@ export class Pool<T> {
   #start(index: number) {
     const promise = this.#create(index)
     this.#allPromises[index] = promise
-    promise.catch(console.warn)
+    promise.catch(e => console.warn({ e }))
   }
 
   async #create(index: number) {
@@ -70,8 +70,7 @@ export class Pool<T> {
     this.#allElements[index] = element
     this.#openElements.add(element)
 
-    const event = new MessageEvent("created", { data: { index, element } })
-    this.events.dispatchEvent(event, "created").catch(console.warn)
+    await this.events.tryEmit("created", { index, element }).then(r => r.unwrap())
 
     return element
   }
@@ -81,7 +80,7 @@ export class Pool<T> {
    * @param element 
    * @returns 
    */
-  delete(element: T) {
+  async delete(element: T) {
     const index = this.#allElements.indexOf(element)
 
     if (index === -1)
@@ -90,8 +89,7 @@ export class Pool<T> {
     delete this.#allElements[index]
     this.#openElements.delete(element)
 
-    const event = new MessageEvent("deleted", { data: { index, element } })
-    this.events.dispatchEvent(event, "deleted").catch(console.warn)
+    await this.events.tryEmit("deleted", { index, element }).then(r => r.unwrap())
 
     this.#start(index)
     return index
