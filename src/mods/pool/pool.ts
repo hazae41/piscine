@@ -84,13 +84,15 @@ export class Pool<T> {
     promise.catch(e => this.controller.abort(e))
   }
 
-  async #onAbort(error: unknown) {
-    await this.events.tryEmit("errored", error)
+  async #onAbort() {
+    const reason = this.signal.reason
+
+    await this.events.tryEmit("errored", reason)
       .catch(Catched.fromAndThrow)
       .then(r => r.unwrap())
       .catch(e => console.error({ e }))
 
-    console.error("Pool", { error })
+    console.error("Pool", { reason })
   }
 
   async #createOrThrow(index: number) {
