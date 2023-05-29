@@ -25,8 +25,7 @@ export interface PoolEntry<T> {
 export type PoolEvents<T> = {
   created: PoolEntry<T>
   deleted: PoolEntry<T>
-
-  error: unknown
+  errored: unknown
 }
 
 export class EmptyPoolError extends Error {
@@ -80,13 +79,13 @@ export class Pool<T> {
   #start(index: number) {
     const promise = this.#createOrThrow(index)
     this.#allPromises[index] = promise
-    promise.catch(e => console.warn({ e }))
+    promise.catch(e => this.#abortAndThrow(e))
   }
 
   async #abortAndThrow(error: unknown): Promise<never> {
     this.controller.abort(error)
 
-    await this.events.tryEmit("error", error)
+    await this.events.tryEmit("errored", error)
       .catch(Catched.fromAndThrow)
       .then(r => r.unwrap())
       .catch(e => console.error({ e }))
@@ -99,7 +98,6 @@ export class Pool<T> {
     const { signal } = this
 
     const element = await this.create({ pool: this, index, signal })
-      .catch(this.#abortAndThrow.bind(this))
       .catch(Catched.fromAndThrow)
       .then(r => r.unwrap())
 
