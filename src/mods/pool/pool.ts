@@ -74,24 +74,23 @@ export class Pool<T> {
 
     for (let index = 0; index < capacity; index++)
       this.#start(index)
+
+    this.signal.addEventListener("abort", this.#onAbort.bind(this))
   }
 
   #start(index: number) {
     const promise = this.#createOrThrow(index)
     this.#allPromises[index] = promise
-    promise.catch(e => this.#abortAndThrow(e))
+    promise.catch(e => this.controller.abort(e))
   }
 
-  async #abortAndThrow(error: unknown): Promise<never> {
-    this.controller.abort(error)
-
+  async #onAbort(error: unknown) {
     await this.events.tryEmit("errored", error)
       .catch(Catched.fromAndThrow)
       .then(r => r.unwrap())
       .catch(e => console.error({ e }))
 
     console.error("Pool", { error })
-    throw error
   }
 
   async #createOrThrow(index: number) {
