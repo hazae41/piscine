@@ -127,7 +127,7 @@ export class Pool<T> {
    * @param element 
    * @returns 
    */
-  async delete(element: T) {
+  delete(element: T) {
     const index = this.#allElements.indexOf(element)
 
     if (index === -1)
@@ -136,7 +136,7 @@ export class Pool<T> {
     delete this.#allElements[index]
     this.#openElements.delete(element)
 
-    await this.events.tryEmit("deleted", { index, element })
+    this.events.tryEmit("deleted", { index, element })
       .catch(Catched.fromAndThrow)
       .then(r => r.unwrap())
       .catch(e => this.error(e))
