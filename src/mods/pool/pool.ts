@@ -45,7 +45,7 @@ export class Pool<T> {
 
   readonly signal: AbortSignal
 
-  readonly controller: AbortController
+  readonly #controller: AbortController
 
   readonly #allElements: T[]
   readonly #allPromises: Promise<T>[]
@@ -65,9 +65,9 @@ export class Pool<T> {
 
     this.capacity = capacity
 
-    this.controller = new AbortController()
+    this.#controller = new AbortController()
 
-    this.signal = AbortSignals.merge(this.controller.signal, params.signal)
+    this.signal = AbortSignals.merge(this.#controller.signal, params.signal)
 
     this.#allElements = new Array(capacity)
     this.#allPromises = new Array(capacity)
@@ -75,16 +75,26 @@ export class Pool<T> {
     for (let index = 0; index < capacity; index++)
       this.#start(index)
 
-    this.signal.addEventListener("abort", this.#onAbort.bind(this))
+    this.signal.addEventListener("abort", this.#onClose.bind(this))
   }
 
   #start(index: number) {
     const promise = this.#createOrThrow(index)
     this.#allPromises[index] = promise
-    promise.catch(e => this.controller.abort(e))
+    promise.catch(e => this.close(e))
   }
 
-  async #onAbort() {
+  close(reason?: unknown) {
+    this.#controller.abort(reason)
+  }
+
+  get closed() {
+    if (!this.signal.aborted)
+      return undefined
+    return { reason: this.signal.reason }
+  }
+
+  async #onClose() {
     const reason = this.signal.reason
 
     await this.events.tryEmit("errored", reason)
