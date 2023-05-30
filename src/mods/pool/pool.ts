@@ -79,7 +79,9 @@ export class Pool<T> {
   }
 
   #start(index: number) {
-    const promise = this.#createOrThrow(index)
+    const promise = this.#tryCreate(index)
+      .catch(Catched.fromAndThrow)
+      .then(r => r.unwrap())
     this.#allPromises[index] = promise
     promise.catch(e => this.error(e))
   }
@@ -105,22 +107,19 @@ export class Pool<T> {
     console.error("Pool", { reason })
   }
 
-  async #createOrThrow(index: number) {
-    const { signal } = this
+  async #tryCreate(index: number): Promise<Result<T, unknown>> {
+    return Result.unthrow(async t => {
+      const { signal } = this
 
-    const element = await this.create({ pool: this, index, signal })
-      .catch(Catched.fromAndThrow)
-      .then(r => r.unwrap())
+      const element = await this.create({ pool: this, index, signal }).then(r => r.throw(t))
 
-    await this.events.tryEmit("created", { index, element })
-      .catch(Catched.fromAndThrow)
-      .then(r => r.unwrap())
-      .catch(e => console.error({ e }))
+      await this.events.tryEmit("created", { index, element }).then(r => r.throw(t))
 
-    this.#allElements[index] = element
-    this.#openElements.add(element)
+      this.#allElements[index] = element
+      this.#openElements.add(element)
 
-    return element
+      return new Ok(element)
+    })
   }
 
   /**
@@ -140,7 +139,7 @@ export class Pool<T> {
     await this.events.tryEmit("deleted", { index, element })
       .catch(Catched.fromAndThrow)
       .then(r => r.unwrap())
-      .catch(e => console.error({ e }))
+      .catch(e => this.error(e))
 
     this.#start(index)
   }
