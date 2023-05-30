@@ -1,5 +1,5 @@
 import { Arrays } from "@hazae41/arrays";
-import { SuperEventTarget } from "@hazae41/plume";
+import { ErrorError, SuperEventTarget } from "@hazae41/plume";
 import { Catched, Err, Ok, Result } from "@hazae41/result";
 import { AbortSignals } from "libs/signals/signals.js";
 
@@ -81,14 +81,14 @@ export class Pool<T> {
   #start(index: number) {
     const promise = this.#createOrThrow(index)
     this.#allPromises[index] = promise
-    promise.catch(e => this.close(e))
+    promise.catch(e => this.error(e))
   }
 
-  close(reason?: unknown) {
+  error(reason?: unknown) {
     this.#controller.abort(reason)
   }
 
-  get closed() {
+  get errored() {
     if (!this.signal.aborted)
       return undefined
     return { reason: this.signal.reason }
@@ -191,9 +191,13 @@ export class Pool<T> {
    * Wait for any element to be created, then get a random one using Math's PRNG
    * @returns 
    */
-  async tryGetRandom(): Promise<Result<T, AggregateError>> {
+  async tryGetRandom(): Promise<Result<T, ErrorError>> {
+    if (this.errored)
+      return new Err(ErrorError.from(this.errored.reason))
+
     return await Result
-      .catchAndWrap<T, AggregateError>(() => Promise.any(this.#allPromises))
+      .catchAndWrap<T, unknown>(() => Promise.race(this.#allPromises))
+      .then(r => r.mapErrSync(ErrorError.from))
       .then(r => r.mapSync(() => this.tryGetRandomSync().unwrap()))
   }
 
@@ -201,7 +205,10 @@ export class Pool<T> {
    * Get a random element from the pool using Math's PRNG, throws if none available
    * @returns 
    */
-  tryGetRandomSync(): Result<T, EmptyPoolError> {
+  tryGetRandomSync(): Result<T, ErrorError | EmptyPoolError> {
+    if (this.errored)
+      return new Err(ErrorError.from(this.errored.reason))
+
     if (!this.#openElements.size)
       return new Err(new EmptyPoolError())
 
@@ -215,9 +222,13 @@ export class Pool<T> {
    * Wait for any circuit to be created, then get a random one using WebCrypto's CSPRNG
    * @returns 
    */
-  async tryGetCryptoRandom(): Promise<Result<T, AggregateError>> {
+  async tryGetCryptoRandom(): Promise<Result<T, ErrorError>> {
+    if (this.errored)
+      return new Err(ErrorError.from(this.errored.reason))
+
     return await Result
-      .catchAndWrap<T, AggregateError>(() => Promise.any(this.#allPromises))
+      .catchAndWrap<T, unknown>(() => Promise.race(this.#allPromises))
+      .then(r => r.mapErrSync(ErrorError.from))
       .then(r => r.mapSync(() => this.tryGetCryptoRandomSync().unwrap()))
   }
 
@@ -225,7 +236,10 @@ export class Pool<T> {
    * Get a random circuit from the pool using WebCrypto's CSPRNG, throws if none available
    * @returns 
    */
-  tryGetCryptoRandomSync(): Result<T, EmptyPoolError> {
+  tryGetCryptoRandomSync(): Result<T, ErrorError | EmptyPoolError> {
+    if (this.errored)
+      return new Err(ErrorError.from(this.errored.reason))
+
     if (!this.#openElements.size)
       return new Err(new EmptyPoolError())
 
