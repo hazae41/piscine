@@ -161,8 +161,12 @@ export class Pool<T> {
    * @param index 
    * @returns 
    */
-  async get(index: number) {
-    return this.#allPromises[index]
+  async tryGet(index: number): Promise<Result<T, unknown>> {
+    try {
+      return new Ok(await this.#allPromises[index])
+    } catch (e: unknown) {
+      return Result.rethrow(e)
+    }
   }
 
   /**
@@ -204,7 +208,7 @@ export class Pool<T> {
    */
   async tryGetCryptoRandom(): Promise<Result<T, AggregateError>> {
     return await Result
-      .catchAndWrap<T, AggregateError>(() => Promise.race(this.#allPromises))
+      .catchAndWrap<T, AggregateError>(() => Promise.any(this.#allPromises))
       .then(r => r.mapSync(() => this.tryGetCryptoRandomSync().unwrap()))
   }
 
