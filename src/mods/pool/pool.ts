@@ -18,13 +18,14 @@ export interface PoolCreatorParams<T> {
 export type PoolCreator<T> =
   (params: PoolCreatorParams<T>) => Promise<Result<T, unknown>>
 
-export interface PoolEntry<T> {
+export interface PoolEntry<T = unknown> {
   readonly index: number,
   readonly element: T
 }
 
 export type PoolEvents<T> = {
   created: PoolEntry<T>
+  errored: PoolEntry<unknown>
   deleted: PoolEntry<T>
 }
 
@@ -34,6 +35,16 @@ export class EmptyPoolError extends Error {
 
   constructor() {
     super(`Empty pool`)
+  }
+
+}
+
+export class EmptySlotError extends Error {
+  readonly #class = EmptySlotError
+  readonly name = this.#class.name
+
+  constructor() {
+    super(`Empty pool slot`)
   }
 
 }
@@ -49,6 +60,7 @@ export class Pool<T> {
   readonly #controller: AbortController
 
   readonly #allElements: T[]
+  readonly #allResults: Result<T>[]
   readonly #allPromises: Promise<T>[]
 
   readonly #openElements = new Set<T>()
@@ -72,6 +84,7 @@ export class Pool<T> {
 
     this.#allElements = new Array(capacity)
     this.#allPromises = new Array(capacity)
+    this.#allResults = new Array(capacity)
 
     for (let index = 0; index < capacity; index++)
       this.#start(index)
@@ -82,7 +95,7 @@ export class Pool<T> {
   }
 
   #start(index: number) {
-    const promise = this.#tryCreate(index)
+    const promise = this.#tryCreateAndDoStuff(index)
       .catch(Catched.fromAndThrow)
       .then(r => r.unwrap())
     this.#allPromises[index] = promise
@@ -90,24 +103,39 @@ export class Pool<T> {
   }
 
   async #tryCreate(index: number): Promise<Result<T, unknown>> {
-    return Result.unthrow(async t => {
-      const { signal } = this
+    const { signal } = this
 
-      if (signal.aborted)
-        return new Err(AbortError.from(signal.reason))
+    if (signal.aborted)
+      return new Err(AbortError.from(signal.reason))
 
-      const element = await this.create({ pool: this, index, signal }).then(r => r.throw(t))
+    return await this.create({ pool: this, index, signal })
+  }
+
+  async #tryCreateAndDoStuff(index: number): Promise<Result<T, unknown>> {
+    const result = await this.#tryCreate(index)
+
+    if (result.isOk()) {
+      const element = result.inner
+
+      this.#allElements[index] = element
+      this.#openElements.add(element)
 
       this.events.tryEmit("created", { index, element })
         .catch(Catched.fromAndThrow)
         .then(r => r.unwrap())
         .catch(e => console.error({ e }))
+    } else {
+      const element = result.inner
 
-      this.#allElements[index] = element
-      this.#openElements.add(element)
+      this.events.tryEmit("errored", { index, element })
+        .catch(Catched.fromAndThrow)
+        .then(r => r.unwrap())
+        .catch(e => console.error({ e }))
+    }
 
-      return new Ok(element)
-    })
+    this.#allResults[index] = result
+
+    return result
   }
 
   /**
@@ -122,6 +150,7 @@ export class Pool<T> {
       return
 
     delete this.#allElements[index]
+    delete this.#allResults[index]
     this.#openElements.delete(element)
 
     this.events.tryEmit("deleted", { index, element })
@@ -174,8 +203,13 @@ export class Pool<T> {
    * @param index 
    * @returns 
    */
-  getSync(index: number) {
-    return this.#allElements.at(index)
+  tryGetSync(index: number): Result<T, unknown> {
+    const result = this.#allResults.at(index)
+
+    if (result === undefined)
+      return new Err(new EmptySlotError())
+
+    return result
   }
 
   /**
