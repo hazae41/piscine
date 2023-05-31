@@ -1,4 +1,5 @@
 import { Arrays } from "@hazae41/arrays";
+import { Mutex } from "@hazae41/mutex";
 import { ErrorError, SuperEventTarget } from "@hazae41/plume";
 import { Catched, Err, Ok, Result } from "@hazae41/result";
 import { AbortSignals } from "libs/signals/signals.js";
@@ -246,6 +247,28 @@ export class Pool<T> {
     const element = Arrays.cryptoRandom(elements)
 
     return new Ok(element)
+  }
+
+  static async takeRandom<T>(pool: Mutex<Pool<T>>) {
+    return await pool.lock(async pool => {
+      const result = await pool.tryGetRandom()
+
+      if (result.isOk())
+        pool.delete(result.inner)
+
+      return result
+    })
+  }
+
+  static async takeCryptoRandom<T>(pool: Mutex<Pool<T>>) {
+    return await pool.lock(async pool => {
+      const result = await pool.tryGetCryptoRandom()
+
+      if (result.isOk())
+        pool.delete(result.inner)
+
+      return result
+    })
   }
 
 }
