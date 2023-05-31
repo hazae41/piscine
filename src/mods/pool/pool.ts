@@ -95,9 +95,7 @@ export class Pool<T> {
   }
 
   #start(index: number) {
-    const promise = this.#tryCreateAndDoStuff(index)
-      .catch(Catched.fromAndThrow)
-      .then(r => r.unwrap())
+    const promise = this.#tryCreateAndUnwrap(index)
     this.#allPromises[index] = promise
     promise.catch(e => console.debug({ e }))
   }
@@ -111,8 +109,8 @@ export class Pool<T> {
     return await this.create({ pool: this, index, signal })
   }
 
-  async #tryCreateAndDoStuff(index: number): Promise<Result<T, unknown>> {
-    const result = await this.#tryCreate(index)
+  async #tryCreateAndUnwrap(index: number): Promise<T> {
+    const result = await Result.recatch(() => this.#tryCreate(index))
 
     if (result.isOk()) {
       const element = result.inner
@@ -135,7 +133,7 @@ export class Pool<T> {
 
     this.#allResults[index] = result
 
-    return result
+    return result.unwrap()
   }
 
   /**
@@ -218,7 +216,8 @@ export class Pool<T> {
    */
   async tryGetRandom(): Promise<Result<T, AggregateError>> {
     return await Result
-      .catchAndWrap<T, AggregateError>(() => Promise.any(this.#allPromises))
+      .catchAndWrap<T>(() => Promise.any(this.#allPromises))
+      .then(r => r.mapErrSync(e => e.cause as AggregateError))
       .then(r => r.mapSync(() => this.tryGetRandomSync().unwrap()))
   }
 
@@ -242,7 +241,8 @@ export class Pool<T> {
    */
   async tryGetCryptoRandom(): Promise<Result<T, AggregateError>> {
     return await Result
-      .catchAndWrap<T, AggregateError>(() => Promise.any(this.#allPromises))
+      .catchAndWrap<T>(() => Promise.any(this.#allPromises))
+      .then(r => r.mapErrSync(e => e.cause as AggregateError))
       .then(r => r.mapSync(() => this.tryGetCryptoRandomSync().unwrap()))
   }
 
