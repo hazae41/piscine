@@ -10,34 +10,34 @@ export interface PoolParams {
   readonly signal?: AbortSignal
 }
 
-export interface PoolCreatorParams<T> {
-  readonly pool: Pool<T>
+export interface PoolCreatorParams<PoolOutput, PoolError> {
+  readonly pool: Pool<PoolOutput, PoolError>
   readonly index: number
   readonly signal?: AbortSignal
 }
 
-export type PoolCreator<T> =
-  (params: PoolCreatorParams<T>) => Promise<Result<Cleaner<T>, unknown>>
+export type PoolCreator<PoolOutput, PoolError> =
+  (params: PoolCreatorParams<PoolOutput, PoolError>) => Promise<Result<Cleaner<PoolOutput>, PoolError>>
 
-export interface PoolEntry<T = unknown> {
+export interface PoolEntry<PoolOutput = unknown, PoolError = unknown> {
   readonly index: number,
-  readonly result: Result<T, unknown>
+  readonly result: Result<PoolOutput, PoolError | AbortError | Catched>
 }
 
-export interface PoolOkEntry<T = unknown> {
+export interface PoolOkEntry<PoolOutput = unknown> {
   readonly index: number,
-  readonly result: Ok<T>
+  readonly result: Ok<PoolOutput>
 }
 
 export namespace PoolOkEntry {
-  export function is<T>(x: PoolEntry<T>): x is PoolOkEntry<T> {
+  export function is<T, E>(x: PoolEntry<T, E>): x is PoolOkEntry<T> {
     return x.result.isOk()
   }
 }
 
-export type PoolEvents<T> = {
-  created: PoolEntry<T>
-  deleted: PoolEntry<T>
+export type PoolEvents<PoolOutput, PoolError> = {
+  created: PoolEntry<PoolOutput, PoolError>
+  deleted: PoolEntry<PoolOutput, PoolError>
 }
 
 export class EmptyPoolError extends Error {
@@ -60,9 +60,9 @@ export class EmptySlotError extends Error {
 
 }
 
-export class Pool<T> {
+export class Pool<PoolOutput = unknown, PoolError = unknown> {
 
-  readonly events = new SuperEventTarget<PoolEvents<T>>()
+  readonly events = new SuperEventTarget<PoolEvents<PoolOutput, PoolError>>()
 
   readonly capacity: number
 
@@ -70,11 +70,11 @@ export class Pool<T> {
 
   readonly #controller: AbortController
 
-  readonly #allEntries: PoolEntry<T>[]
+  readonly #allEntries: PoolEntry<PoolOutput, PoolError>[]
   readonly #allCleanups: (() => void)[]
   readonly #allPromises: Promise<void>[]
 
-  readonly #okEntries = new Set<PoolOkEntry<T>>()
+  readonly #okEntries = new Set<PoolOkEntry<PoolOutput>>()
 
   /**
    * A pool of circuits
@@ -82,7 +82,7 @@ export class Pool<T> {
    * @param params 
    */
   constructor(
-    readonly create: PoolCreator<T>,
+    readonly create: PoolCreator<PoolOutput, PoolError>,
     readonly params: PoolParams = {}
   ) {
     const { capacity = 3 } = params
@@ -111,7 +111,7 @@ export class Pool<T> {
     promise.catch(e => console.debug({ e }))
   }
 
-  async #tryCreate(index: number): Promise<Result<Cleaner<T>, unknown>> {
+  async #tryCreate(index: number): Promise<Result<Cleaner<PoolOutput>, PoolError | AbortError>> {
     const { signal } = this
 
     if (signal.aborted)
@@ -198,7 +198,7 @@ export class Pool<T> {
    * @param index 
    * @returns 
    */
-  async tryGet(index: number): Promise<Result<T, unknown>> {
+  async tryGet(index: number): Promise<Result<PoolOutput, unknown>> {
     try {
       await this.#allPromises[index]
     } catch (e: unknown) { }
@@ -211,7 +211,7 @@ export class Pool<T> {
    * @param index 
    * @returns 
    */
-  tryGetSync(index: number): Result<Result<T, unknown>, EmptySlotError> {
+  tryGetSync(index: number): Result<Result<PoolOutput, unknown>, EmptySlotError> {
     const entry = this.#allEntries.at(index)
 
     if (entry === undefined)
@@ -224,7 +224,7 @@ export class Pool<T> {
    * Wait for any element to be created, then get a random one using Math's PRNG
    * @returns 
    */
-  async tryGetRandom(): Promise<Result<PoolOkEntry<T>, AggregateError>> {
+  async tryGetRandom(): Promise<Result<PoolOkEntry<PoolOutput>, AggregateError>> {
     return await Result
       .catchAndWrap(() => Promise.any(this.#allPromises))
       .then(r => r.mapErrSync(e => e.cause as AggregateError))
@@ -235,7 +235,7 @@ export class Pool<T> {
    * Get a random element from the pool using Math's PRNG, throws if none available
    * @returns 
    */
-  tryGetRandomSync(): Result<PoolOkEntry<T>, EmptyPoolError> {
+  tryGetRandomSync(): Result<PoolOkEntry<PoolOutput>, EmptyPoolError> {
     if (!this.#okEntries.size)
       return new Err(new EmptyPoolError())
 
@@ -249,7 +249,7 @@ export class Pool<T> {
    * Wait for any circuit to be created, then get a random one using WebCrypto's CSPRNG
    * @returns 
    */
-  async tryGetCryptoRandom(): Promise<Result<PoolOkEntry<T>, AggregateError>> {
+  async tryGetCryptoRandom(): Promise<Result<PoolOkEntry<PoolOutput>, AggregateError>> {
     return await Result
       .catchAndWrap(() => Promise.any(this.#allPromises))
       .then(r => r.mapErrSync(e => e.cause as AggregateError))
@@ -260,7 +260,7 @@ export class Pool<T> {
    * Get a random circuit from the pool using WebCrypto's CSPRNG, throws if none available
    * @returns 
    */
-  tryGetCryptoRandomSync(): Result<PoolOkEntry<T>, EmptyPoolError> {
+  tryGetCryptoRandomSync(): Result<PoolOkEntry<PoolOutput>, EmptyPoolError> {
     if (!this.#okEntries.size)
       return new Err(new EmptyPoolError())
 
@@ -270,7 +270,7 @@ export class Pool<T> {
     return new Ok(entry)
   }
 
-  static async takeRandom<T>(pool: Mutex<Pool<T>>) {
+  static async takeRandom<PoolOutput, PoolError>(pool: Mutex<Pool<PoolOutput, PoolError>>): Promise<Result<PoolOkEntry<PoolOutput>, AggregateError>> {
     return await pool.lock(async pool => {
       const result = await pool.tryGetRandom()
 
@@ -281,7 +281,7 @@ export class Pool<T> {
     })
   }
 
-  static async takeCryptoRandom<T>(pool: Mutex<Pool<T>>) {
+  static async takeCryptoRandom<PoolOutput, PoolError>(pool: Mutex<Pool<PoolOutput, PoolError>>): Promise<Result<PoolOkEntry<PoolOutput>, AggregateError>> {
     return await pool.lock(async pool => {
       const result = await pool.tryGetCryptoRandom()
 
