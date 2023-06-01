@@ -198,7 +198,7 @@ export class Pool<PoolOutput = unknown, PoolError = unknown> {
    * @param index 
    * @returns 
    */
-  async tryGet(index: number): Promise<Result<PoolOutput, unknown>> {
+  async tryGet(index: number): Promise<Result<PoolOutput, PoolError | AbortError | Catched>> {
     try {
       await this.#allPromises[index]
     } catch (e: unknown) { }
@@ -211,7 +211,7 @@ export class Pool<PoolOutput = unknown, PoolError = unknown> {
    * @param index 
    * @returns 
    */
-  tryGetSync(index: number): Result<Result<PoolOutput, unknown>, EmptySlotError> {
+  tryGetSync(index: number): Result<Result<PoolOutput, PoolError | AbortError | Catched>, EmptySlotError> {
     const entry = this.#allEntries.at(index)
 
     if (entry === undefined)
