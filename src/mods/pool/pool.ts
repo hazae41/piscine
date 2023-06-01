@@ -193,11 +193,11 @@ export class Pool<T> {
   }
 
   /**
-   * Get the element promise at index
+   * Get the element at index
    * @param index 
    * @returns 
    */
-  async tryGet(index: number): Promise<PoolEntry<T>> {
+  async tryGet(index: number): Promise<Result<T, unknown>> {
     try {
       await this.#allPromises[index]
     } catch (e: unknown) { }
@@ -206,17 +206,17 @@ export class Pool<T> {
   }
 
   /**
-   * Get the element (or undefined) at index
+   * Get the element at index
    * @param index 
    * @returns 
    */
-  tryGetSync(index: number): Result<PoolEntry<T>, EmptySlotError> {
+  tryGetSync(index: number): Result<Result<T, unknown>, EmptySlotError> {
     const entry = this.#allEntries.at(index)
 
     if (entry === undefined)
       return new Err(new EmptySlotError())
 
-    return new Ok(entry)
+    return new Ok(entry.result)
   }
 
   /**
