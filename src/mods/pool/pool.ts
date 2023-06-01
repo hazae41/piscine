@@ -20,12 +20,22 @@ export type PoolCreator<T> =
 
 export interface PoolEntry<T = unknown> {
   readonly index: number,
-  readonly element: T
+  readonly result: Result<T, unknown>
+}
+
+export interface PoolOkEntry<T = unknown> {
+  readonly index: number,
+  readonly result: Ok<T>
+}
+
+export namespace PoolOkEntry {
+  export function is<T>(x: PoolEntry<T>): x is PoolOkEntry<T> {
+    return x.result.isOk()
+  }
 }
 
 export type PoolEvents<T> = {
   created: PoolEntry<T>
-  errored: PoolEntry<unknown>
   deleted: PoolEntry<T>
 }
 
@@ -59,11 +69,10 @@ export class Pool<T> {
 
   readonly #controller: AbortController
 
-  readonly #allElements: T[]
-  readonly #allResults: Result<T>[]
+  readonly #allEntries: PoolEntry<T>[]
   readonly #allPromises: Promise<T>[]
 
-  readonly #openElements = new Set<T>()
+  readonly #okEntries = new Set<PoolOkEntry<T>>()
 
   /**
    * A pool of circuits
@@ -82,9 +91,8 @@ export class Pool<T> {
 
     this.signal = AbortSignals.merge(this.#controller.signal, params.signal)
 
-    this.#allElements = new Array(capacity)
     this.#allPromises = new Array(capacity)
-    this.#allResults = new Array(capacity)
+    this.#allEntries = new Array(capacity)
 
     for (let index = 0; index < capacity; index++)
       this.#start(index)
@@ -95,7 +103,7 @@ export class Pool<T> {
   }
 
   #start(index: number) {
-    const promise = this.#tryCreateAndUnwrap(index)
+    const promise = this.#createAndUnwrap(index)
     this.#allPromises[index] = promise
     promise.catch(e => console.debug({ e }))
   }
@@ -109,29 +117,20 @@ export class Pool<T> {
     return await this.create({ pool: this, index, signal })
   }
 
-  async #tryCreateAndUnwrap(index: number): Promise<T> {
+  async #createAndUnwrap(index: number): Promise<T> {
     const result = await Result.recatch(() => this.#tryCreate(index))
 
-    if (result.isOk()) {
-      const element = result.inner
+    const entry = { index, result }
 
-      this.#allElements[index] = element
-      this.#openElements.add(element)
+    this.#allEntries[index] = entry
 
-      this.events.tryEmit("created", { index, element })
-        .catch(Catched.fromAndThrow)
-        .then(r => r.unwrap())
-        .catch(e => console.error({ e }))
-    } else {
-      const element = result.inner
+    if (PoolOkEntry.is(entry))
+      this.#okEntries.add(entry)
 
-      this.events.tryEmit("errored", { index, element })
-        .catch(Catched.fromAndThrow)
-        .then(r => r.unwrap())
-        .catch(e => console.error({ e }))
-    }
-
-    this.#allResults[index] = result
+    this.events.tryEmit("created", entry)
+      .catch(Catched.fromAndThrow)
+      .then(r => r.unwrap())
+      .catch(e => console.error({ e }))
 
     return result.unwrap()
   }
@@ -141,20 +140,21 @@ export class Pool<T> {
    * @param element 
    * @returns 
    */
-  delete(element: T) {
-    const index = this.#allElements.indexOf(element)
+  delete(entry: PoolEntry<T>) {
+    const { index } = entry
 
-    if (index === -1)
+    if (entry !== this.#allEntries[index])
       return
 
-    delete this.#allElements[index]
-    delete this.#allResults[index]
-    this.#openElements.delete(element)
-
-    this.events.tryEmit("deleted", { index, element })
+    this.events.tryEmit("deleted", entry)
       .catch(Catched.fromAndThrow)
       .then(r => r.unwrap())
       .catch(e => console.error({ e }))
+
+    if (PoolOkEntry.is(entry))
+      this.#okEntries.delete(entry)
+
+    delete this.#allEntries[index]
 
     this.#start(index)
   }
@@ -163,7 +163,7 @@ export class Pool<T> {
    * Number of open elements
    */
   get size() {
-    return this.#openElements.size
+    return this.#okEntries.size
   }
 
   /**
@@ -171,16 +171,7 @@ export class Pool<T> {
    * @returns 
    */
   [Symbol.iterator]() {
-    return this.#openElements.values()
-  }
-
-  /**
-   * Get the index of the given element
-   * @param element 
-   * @returns 
-   */
-  indexOf(element: T) {
-    return this.#allElements.indexOf(element)
+    return this.#okEntries.values()
   }
 
   /**
@@ -188,12 +179,12 @@ export class Pool<T> {
    * @param index 
    * @returns 
    */
-  async tryGet(index: number): Promise<Result<T, unknown>> {
+  async tryGet(index: number): Promise<PoolEntry<T>> {
     try {
-      return new Ok(await this.#allPromises[index])
-    } catch (e: unknown) {
-      return Result.rethrow(e)
-    }
+      await this.#allPromises[index]
+    } catch (e: unknown) { }
+
+    return this.tryGetSync(index).unwrap()
   }
 
   /**
@@ -201,20 +192,20 @@ export class Pool<T> {
    * @param index 
    * @returns 
    */
-  tryGetSync(index: number): Result<T, unknown> {
-    const result = this.#allResults.at(index)
+  tryGetSync(index: number): Result<PoolEntry<T>, EmptySlotError> {
+    const entry = this.#allEntries.at(index)
 
-    if (result === undefined)
+    if (entry === undefined)
       return new Err(new EmptySlotError())
 
-    return result
+    return new Ok(entry)
   }
 
   /**
    * Wait for any element to be created, then get a random one using Math's PRNG
    * @returns 
    */
-  async tryGetRandom(): Promise<Result<T, AggregateError>> {
+  async tryGetRandom(): Promise<Result<PoolOkEntry<T>, AggregateError>> {
     return await Result
       .catchAndWrap<T>(() => Promise.any(this.#allPromises))
       .then(r => r.mapErrSync(e => e.cause as AggregateError))
@@ -225,21 +216,21 @@ export class Pool<T> {
    * Get a random element from the pool using Math's PRNG, throws if none available
    * @returns 
    */
-  tryGetRandomSync(): Result<T, EmptyPoolError> {
-    if (!this.#openElements.size)
+  tryGetRandomSync(): Result<PoolOkEntry<T>, EmptyPoolError> {
+    if (!this.#okEntries.size)
       return new Err(new EmptyPoolError())
 
-    const elements = [...this.#openElements]
-    const element = Arrays.random(elements)
+    const entries = [...this.#okEntries]
+    const entry = Arrays.random(entries)
 
-    return new Ok(element)
+    return new Ok(entry)
   }
 
   /**
    * Wait for any circuit to be created, then get a random one using WebCrypto's CSPRNG
    * @returns 
    */
-  async tryGetCryptoRandom(): Promise<Result<T, AggregateError>> {
+  async tryGetCryptoRandom(): Promise<Result<PoolOkEntry<T>, AggregateError>> {
     return await Result
       .catchAndWrap<T>(() => Promise.any(this.#allPromises))
       .then(r => r.mapErrSync(e => e.cause as AggregateError))
@@ -250,14 +241,14 @@ export class Pool<T> {
    * Get a random circuit from the pool using WebCrypto's CSPRNG, throws if none available
    * @returns 
    */
-  tryGetCryptoRandomSync(): Result<T, EmptyPoolError> {
-    if (!this.#openElements.size)
+  tryGetCryptoRandomSync(): Result<PoolOkEntry<T>, EmptyPoolError> {
+    if (!this.#okEntries.size)
       return new Err(new EmptyPoolError())
 
-    const elements = [...this.#openElements]
-    const element = Arrays.cryptoRandom(elements)
+    const entries = [...this.#okEntries]
+    const entry = Arrays.cryptoRandom(entries)
 
-    return new Ok(element)
+    return new Ok(entry)
   }
 
   static async takeRandom<T>(pool: Mutex<Pool<T>>) {
