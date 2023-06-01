@@ -1,6 +1,6 @@
 import { Arrays } from "@hazae41/arrays";
 import { Mutex } from "@hazae41/mutex";
-import { AbortError, SuperEventTarget } from "@hazae41/plume";
+import { AbortError, Cleanable, SuperEventTarget } from "@hazae41/plume";
 import { Catched, Err, Ok, Result } from "@hazae41/result";
 import { AbortSignals } from "libs/signals/signals.js";
 
@@ -16,16 +16,16 @@ export interface PoolCreatorParams<T> {
 }
 
 export type PoolCreator<T> =
-  (params: PoolCreatorParams<T>) => Promise<Result<T, unknown>>
+  (params: PoolCreatorParams<T>) => Promise<Result<Cleanable<T>, unknown>>
 
 export interface PoolEntry<T = unknown> {
   readonly index: number,
-  readonly result: Result<T, unknown>
+  readonly result: Result<Cleanable<T>, unknown>
 }
 
 export interface PoolOkEntry<T = unknown> {
   readonly index: number,
-  readonly result: Ok<T>
+  readonly result: Ok<Cleanable<T>>
 }
 
 export namespace PoolOkEntry {
@@ -70,7 +70,7 @@ export class Pool<T> {
   readonly #controller: AbortController
 
   readonly #allEntries: PoolEntry<T>[]
-  readonly #allPromises: Promise<T>[]
+  readonly #allPromises: Promise<void>[]
 
   readonly #okEntries = new Set<PoolOkEntry<T>>()
 
@@ -108,7 +108,7 @@ export class Pool<T> {
     promise.catch(e => console.debug({ e }))
   }
 
-  async #tryCreate(index: number): Promise<Result<T, unknown>> {
+  async #tryCreate(index: number): Promise<Result<Cleanable<T>, unknown>> {
     const { signal } = this
 
     if (signal.aborted)
@@ -117,7 +117,7 @@ export class Pool<T> {
     return await this.create({ pool: this, index, signal })
   }
 
-  async #createAndUnwrap(index: number): Promise<T> {
+  async #createAndUnwrap(index: number): Promise<void> {
     const result = await Result.recatch(() => this.#tryCreate(index))
 
     const entry = { index, result }
@@ -132,31 +132,32 @@ export class Pool<T> {
       .then(r => r.unwrap())
       .catch(e => console.error({ e }))
 
-    return result.unwrap()
+    return result.clear().unwrap()
   }
 
   /**
-   * Delete the index at the given element, restart the index, and return the index
+   * Delete the index, restart the index, and return the entry
    * @param element 
    * @returns 
    */
-  delete(entry: PoolEntry<T>) {
-    const { index } = entry
-
-    if (entry !== this.#allEntries[index])
-      return
+  delete(index: number) {
+    const entry = this.#allEntries[index]
 
     this.events.tryEmit("deleted", entry)
       .catch(Catched.fromAndThrow)
       .then(r => r.unwrap())
       .catch(e => console.error({ e }))
 
-    if (PoolOkEntry.is(entry))
+    if (PoolOkEntry.is(entry)) {
       this.#okEntries.delete(entry)
+      entry.result.inner.cleanup()
+    }
 
     delete this.#allEntries[index]
 
     this.#start(index)
+
+    return entry
   }
 
   /**
@@ -207,7 +208,7 @@ export class Pool<T> {
    */
   async tryGetRandom(): Promise<Result<PoolOkEntry<T>, AggregateError>> {
     return await Result
-      .catchAndWrap<T>(() => Promise.any(this.#allPromises))
+      .catchAndWrap(() => Promise.any(this.#allPromises))
       .then(r => r.mapErrSync(e => e.cause as AggregateError))
       .then(r => r.mapSync(() => this.tryGetRandomSync().unwrap()))
   }
@@ -232,7 +233,7 @@ export class Pool<T> {
    */
   async tryGetCryptoRandom(): Promise<Result<PoolOkEntry<T>, AggregateError>> {
     return await Result
-      .catchAndWrap<T>(() => Promise.any(this.#allPromises))
+      .catchAndWrap(() => Promise.any(this.#allPromises))
       .then(r => r.mapErrSync(e => e.cause as AggregateError))
       .then(r => r.mapSync(() => this.tryGetCryptoRandomSync().unwrap()))
   }
@@ -256,7 +257,7 @@ export class Pool<T> {
       const result = await pool.tryGetRandom()
 
       if (result.isOk())
-        pool.delete(result.inner)
+        pool.delete(result.inner.index)
 
       return result
     })
@@ -267,7 +268,7 @@ export class Pool<T> {
       const result = await pool.tryGetCryptoRandom()
 
       if (result.isOk())
-        pool.delete(result.inner)
+        pool.delete(result.inner.index)
 
       return result
     })
