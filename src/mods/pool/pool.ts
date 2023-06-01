@@ -1,6 +1,7 @@
 import { Arrays } from "@hazae41/arrays";
+import { Cleaner } from "@hazae41/cleaner";
 import { Mutex } from "@hazae41/mutex";
-import { AbortError, Cleanable, SuperEventTarget } from "@hazae41/plume";
+import { AbortError, SuperEventTarget } from "@hazae41/plume";
 import { Catched, Err, Ok, Result } from "@hazae41/result";
 import { AbortSignals } from "libs/signals/signals.js";
 
@@ -16,7 +17,7 @@ export interface PoolCreatorParams<T> {
 }
 
 export type PoolCreator<T> =
-  (params: PoolCreatorParams<T>) => Promise<Result<Cleanable<T>, unknown>>
+  (params: PoolCreatorParams<T>) => Promise<Result<Cleaner<T>, unknown>>
 
 export interface PoolEntry<T = unknown> {
   readonly index: number,
@@ -110,7 +111,7 @@ export class Pool<T> {
     promise.catch(e => console.debug({ e }))
   }
 
-  async #tryCreate(index: number): Promise<Result<Cleanable<T>, unknown>> {
+  async #tryCreate(index: number): Promise<Result<Cleaner<T>, unknown>> {
     const { signal } = this
 
     if (signal.aborted)
@@ -124,12 +125,12 @@ export class Pool<T> {
 
     if (result.isOk()) {
       const ok = new Ok(result.inner.inner)
-      const cleanup = result.inner.cleanup
+      const clean = () => result.inner.clean()
 
       const entry = { index, result: ok }
 
       this.#allEntries[index] = entry
-      this.#allCleanups[index] = cleanup
+      this.#allCleanups[index] = clean
 
       this.#okEntries.add(entry)
 
