@@ -10,13 +10,13 @@ export interface PoolParams {
   readonly signal?: AbortSignal
 }
 
-export interface PoolCreatorParams<PoolOutput, PoolError> {
+export interface PoolCreatorParams<PoolOutput = unknown, PoolError = unknown> {
   readonly pool: Pool<PoolOutput, PoolError>
   readonly index: number
   readonly signal?: AbortSignal
 }
 
-export type PoolCreator<PoolOutput, PoolError> =
+export type PoolCreator<PoolOutput = unknown, PoolError = unknown> =
   (params: PoolCreatorParams<PoolOutput, PoolError>) => Promise<Result<Cleaner<PoolOutput>, PoolError>>
 
 export interface PoolEntry<PoolOutput = unknown, PoolError = unknown> {
@@ -35,7 +35,7 @@ export namespace PoolOkEntry {
   }
 }
 
-export type PoolEvents<PoolOutput, PoolError> = {
+export type PoolEvents<PoolOutput = unknown, PoolError = unknown> = {
   created: PoolEntry<PoolOutput, PoolError>
   deleted: PoolEntry<PoolOutput, PoolError>
 }
