@@ -20,12 +20,12 @@ export type PoolCreator<T> =
 
 export interface PoolEntry<T = unknown> {
   readonly index: number,
-  readonly result: Result<Cleanable<T>, unknown>
+  readonly result: Result<T, unknown>
 }
 
 export interface PoolOkEntry<T = unknown> {
   readonly index: number,
-  readonly result: Ok<Cleanable<T>>
+  readonly result: Ok<T>
 }
 
 export namespace PoolOkEntry {
@@ -70,6 +70,7 @@ export class Pool<T> {
   readonly #controller: AbortController
 
   readonly #allEntries: PoolEntry<T>[]
+  readonly #allCleanups: (() => void)[]
   readonly #allPromises: Promise<void>[]
 
   readonly #okEntries = new Set<PoolOkEntry<T>>()
@@ -91,8 +92,9 @@ export class Pool<T> {
 
     this.signal = AbortSignals.merge(this.#controller.signal, params.signal)
 
-    this.#allPromises = new Array(capacity)
     this.#allEntries = new Array(capacity)
+    this.#allCleanups = new Array(capacity)
+    this.#allPromises = new Array(capacity)
 
     for (let index = 0; index < capacity; index++)
       this.#start(index)
@@ -120,17 +122,31 @@ export class Pool<T> {
   async #createAndUnwrap(index: number): Promise<void> {
     const result = await Result.recatch(() => this.#tryCreate(index))
 
-    const entry = { index, result }
+    if (result.isOk()) {
+      const ok = new Ok(result.inner.inner)
+      const cleanup = result.inner.cleanup
 
-    this.#allEntries[index] = entry
+      const entry = { index, result: ok }
 
-    if (PoolOkEntry.is(entry))
+      this.#allEntries[index] = entry
+      this.#allCleanups[index] = cleanup
+
       this.#okEntries.add(entry)
 
-    this.events.tryEmit("created", entry)
-      .catch(Catched.fromAndThrow)
-      .then(r => r.unwrap())
-      .catch(e => console.error({ e }))
+      this.events.tryEmit("created", entry)
+        .catch(Catched.fromAndThrow)
+        .then(r => r.unwrap())
+        .catch(e => console.error({ e }))
+    } else {
+      const entry = { index, result }
+
+      this.#allEntries[index] = entry
+
+      this.events.tryEmit("created", entry)
+        .catch(Catched.fromAndThrow)
+        .then(r => r.unwrap())
+        .catch(e => console.error({ e }))
+    }
 
     return result.clear().unwrap()
   }
@@ -150,7 +166,8 @@ export class Pool<T> {
 
     if (PoolOkEntry.is(entry)) {
       this.#okEntries.delete(entry)
-      entry.result.inner.cleanup()
+      this.#allCleanups[index]()
+      delete this.#allCleanups[index]
     }
 
     delete this.#allEntries[index]
