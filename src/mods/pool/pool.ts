@@ -160,11 +160,6 @@ export class Pool<PoolOutput = unknown, PoolError = unknown> {
   delete(index: number) {
     const entry = this.#allEntries[index]
 
-    this.events.tryEmit("deleted", entry)
-      .catch(Catched.fromAndThrow)
-      .then(r => r.unwrap())
-      .catch(e => console.error({ e }))
-
     if (PoolOkEntry.is(entry)) {
       this.#okEntries.delete(entry)
       this.#allCleanups[index]()
@@ -174,6 +169,11 @@ export class Pool<PoolOutput = unknown, PoolError = unknown> {
     delete this.#allEntries[index]
 
     this.#start(index)
+
+    this.events.tryEmit("deleted", entry)
+      .catch(Catched.fromAndThrow)
+      .then(r => r.unwrap())
+      .catch(e => console.error({ e }))
 
     return entry
   }
