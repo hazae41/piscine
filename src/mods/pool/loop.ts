@@ -16,6 +16,7 @@ export class TooManyRetriesError extends Error {
 }
 
 export class Retry<T> {
+
   constructor(
     readonly inner: T
   ) { }
