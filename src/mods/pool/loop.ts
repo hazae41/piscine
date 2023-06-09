@@ -21,6 +21,10 @@ export class Cancel<T> {
     readonly inner: T
   ) { }
 
+  static new<T>(inner: T) {
+    return new Cancel(inner)
+  }
+
   isCancel(): this is Cancel<T> {
     return true
   }
@@ -36,6 +40,10 @@ export class Retry<T> {
   constructor(
     readonly inner: T
   ) { }
+
+  static new<T>(inner: T) {
+    return new Retry(inner)
+  }
 
   isCancel(): false {
     return false
