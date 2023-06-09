@@ -1,2 +1,2 @@
-export * from "./pool/pool.js";
+export * from "./pool/index.js";
 
