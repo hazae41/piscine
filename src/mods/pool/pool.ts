@@ -1,7 +1,7 @@
 import { Arrays } from "@hazae41/arrays";
 import { Cleaner } from "@hazae41/cleaner";
 import { Mutex } from "@hazae41/mutex";
-import { AbortError, SuperEventTarget } from "@hazae41/plume";
+import { AbortedError, SuperEventTarget } from "@hazae41/plume";
 import { Catched, Err, Ok, Result } from "@hazae41/result";
 import { AbortSignals } from "libs/signals/signals.js";
 
@@ -21,7 +21,7 @@ export type PoolCreator<PoolOutput = unknown, PoolError = unknown> =
 
 export interface PoolEntry<PoolOutput = unknown, PoolError = unknown> {
   readonly index: number,
-  readonly result: Result<PoolOutput, PoolError | AbortError | Catched>
+  readonly result: Result<PoolOutput, PoolError | AbortedError | Catched>
 }
 
 export interface PoolOkEntry<PoolOutput = unknown> {
@@ -111,11 +111,11 @@ export class Pool<PoolOutput = unknown, PoolError = unknown> {
     promise.catch(e => console.debug({ e }))
   }
 
-  async #tryCreate(index: number): Promise<Result<Cleaner<PoolOutput>, PoolError | AbortError>> {
+  async #tryCreate(index: number): Promise<Result<Cleaner<PoolOutput>, PoolError | AbortedError>> {
     const { signal } = this
 
     if (signal.aborted)
-      return new Err(AbortError.from(signal.reason))
+      return new Err(AbortedError.from(signal.reason))
 
     return await this.create({ pool: this, index, signal })
   }
@@ -198,7 +198,7 @@ export class Pool<PoolOutput = unknown, PoolError = unknown> {
    * @param index 
    * @returns 
    */
-  async tryGet(index: number): Promise<Result<PoolOutput, PoolError | AbortError | Catched>> {
+  async tryGet(index: number): Promise<Result<PoolOutput, PoolError | AbortedError | Catched>> {
     try {
       await this.#allPromises[index]
     } catch (e: unknown) { }
@@ -211,7 +211,7 @@ export class Pool<PoolOutput = unknown, PoolError = unknown> {
    * @param index 
    * @returns 
    */
-  tryGetSync(index: number): Result<Result<PoolOutput, PoolError | AbortError | Catched>, EmptySlotError> {
+  tryGetSync(index: number): Result<Result<PoolOutput, PoolError | AbortedError | Catched>, EmptySlotError> {
     const entry = this.#allEntries.at(index)
 
     if (entry === undefined)
