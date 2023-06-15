@@ -12,7 +12,7 @@ export class TooManyRetriesError extends Error {
 }
 
 export type Looper<LoopOutput, LoopError extends Looped.Infer<LoopError>> =
-  () => Promise<Result<LoopOutput, LoopError>>
+  (index: number) => Promise<Result<LoopOutput, LoopError>>
 
 export type Looped<T> =
   | Cancel<T>
@@ -143,7 +143,7 @@ export async function tryLoop<LoopOutput, LoopError extends Looped.Infer<LoopErr
   const { init = 1000, base = 2, max = 3, signal } = options
 
   for (let i = 0; !signal?.aborted && i < max; i++) {
-    const result = await looper()
+    const result = await looper(i)
 
     if (result.isOk())
       return result
