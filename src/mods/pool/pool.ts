@@ -158,7 +158,10 @@ export class Pool<PoolOutput = unknown, PoolError = unknown> {
    * @returns 
    */
   delete(index: number) {
-    const entry = this.#allEntries[index]
+    const entry = this.#allEntries.at(index)
+
+    if (entry === undefined)
+      return undefined
 
     if (PoolOkEntry.is(entry)) {
       this.#okEntries.delete(entry)
