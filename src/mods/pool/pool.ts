@@ -36,8 +36,8 @@ export namespace PoolOkEntry {
 }
 
 export type PoolEvents<PoolOutput = unknown, PoolError = unknown> = {
-  created: PoolEntry<PoolOutput, PoolError>
-  deleted: PoolEntry<PoolOutput, PoolError>
+  created: (entry: PoolEntry<PoolOutput, PoolError>) => void
+  deleted: (entry: PoolEntry<PoolOutput, PoolError>) => void
 }
 
 export class EmptyPoolError extends Error {
@@ -134,19 +134,13 @@ export class Pool<PoolOutput = unknown, PoolError = unknown> {
 
       this.#okEntries.add(entry)
 
-      this.events.tryEmit("created", entry)
-        .catch(Catched.fromAndThrow)
-        .then(r => r.unwrap())
-        .catch(e => console.error({ e }))
+      this.events.emit("created", [entry]).catch(e => console.error({ e }))
     } else {
       const entry = { index, result }
 
       this.#allEntries[index] = entry
 
-      this.events.tryEmit("created", entry)
-        .catch(Catched.fromAndThrow)
-        .then(r => r.unwrap())
-        .catch(e => console.error({ e }))
+      this.events.emit("created", [entry]).catch(e => console.error({ e }))
     }
 
     return result.clear().unwrap()
@@ -173,10 +167,7 @@ export class Pool<PoolOutput = unknown, PoolError = unknown> {
 
     this.#start(index)
 
-    this.events.tryEmit("deleted", entry)
-      .catch(Catched.fromAndThrow)
-      .then(r => r.unwrap())
-      .catch(e => console.error({ e }))
+    this.events.emit("deleted", [entry]).catch(e => console.error({ e }))
 
     return entry
   }
