@@ -27,7 +27,7 @@
     "@hazae41/cleaner": "^1.0.4",
     "@hazae41/future": "^1.0.3",
     "@hazae41/mutex": "^1.2.9",
-    "@hazae41/plume": "^2.1.1",
+    "@hazae41/plume": "^2.1.2",
     "@hazae41/result": "^1.0.52"
   },
   "devDependencies": {
