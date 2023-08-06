@@ -150,10 +150,8 @@ export async function tryLoop<LoopOutput, LoopError extends Looped.Infer<LoopErr
 
     const looped = result.get()
 
-    if (looped.isSkip()) {
-      console.debug(`Loop failed ${i + 1} time(s)`, { error: looped.inner, looper: looper.toString() })
+    if (looped.isSkip())
       continue
-    }
 
     if (looped.isRetry()) {
       console.debug(`Loop failed ${i + 1} time(s)`, { error: looped.inner, looper: looper.toString() })
