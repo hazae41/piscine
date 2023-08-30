@@ -1,5 +1,5 @@
 import { Arrays } from "@hazae41/arrays";
-import { Cleaner } from "@hazae41/cleaner";
+import { Disposable, MaybeAsyncDisposable } from "@hazae41/cleaner";
 import { Mutex } from "@hazae41/mutex";
 import { AbortedError, SuperEventTarget } from "@hazae41/plume";
 import { Catched, Err, Ok, Result } from "@hazae41/result";
@@ -10,14 +10,14 @@ export interface PoolParams {
   readonly signal?: AbortSignal
 }
 
-export interface PoolCreatorParams<PoolOutput = unknown, PoolError = unknown> {
+export interface PoolCreatorParams<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable, PoolError = unknown> {
   readonly pool: Pool<PoolOutput, PoolError>
   readonly index: number
   readonly signal?: AbortSignal
 }
 
-export type PoolCreator<PoolOutput = unknown, PoolError = unknown> =
-  (params: PoolCreatorParams<PoolOutput, PoolError>) => Promise<Result<Cleaner<PoolOutput>, PoolError>>
+export type PoolCreator<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable, PoolError = unknown> =
+  (params: PoolCreatorParams<PoolOutput, PoolError>) => Promise<Result<PoolOutput, PoolError>>
 
 export interface PoolEntry<PoolOutput = unknown, PoolError = unknown> {
   readonly index: number,
@@ -60,18 +60,17 @@ export class EmptySlotError extends Error {
 
 }
 
-export class Pool<PoolOutput = unknown, PoolError = unknown> {
+export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable, PoolError = unknown> {
+
+  #capacity: number
 
   readonly events = new SuperEventTarget<PoolEvents<PoolOutput, PoolError>>()
-
-  readonly capacity: number
 
   readonly signal: AbortSignal
 
   readonly #controller: AbortController
 
   readonly #allEntries: PoolEntry<PoolOutput, PoolError>[]
-  readonly #allCleanups: (() => void)[]
   readonly #allPromises: Promise<void>[]
 
   readonly #okEntries = new Set<PoolOkEntry<PoolOutput>>()
@@ -87,14 +86,13 @@ export class Pool<PoolOutput = unknown, PoolError = unknown> {
   ) {
     const { capacity = 3 } = params
 
-    this.capacity = capacity
+    this.#capacity = capacity
 
     this.#controller = new AbortController()
 
     this.signal = AbortSignals.merge(this.#controller.signal, params.signal)
 
     this.#allEntries = new Array(capacity)
-    this.#allCleanups = new Array(capacity)
     this.#allPromises = new Array(capacity)
 
     for (let index = 0; index < capacity; index++)
@@ -111,7 +109,7 @@ export class Pool<PoolOutput = unknown, PoolError = unknown> {
     promise.catch(e => console.debug({ e }))
   }
 
-  async #tryCreate(index: number): Promise<Result<Cleaner<PoolOutput>, PoolError | AbortedError>> {
+  async #tryCreate(index: number): Promise<Result<PoolOutput, PoolError | AbortedError>> {
     const { signal } = this
 
     if (signal.aborted)
@@ -121,17 +119,14 @@ export class Pool<PoolOutput = unknown, PoolError = unknown> {
   }
 
   async #createAndUnwrap(index: number): Promise<void> {
-    const result = await Result.recatch(() => this.#tryCreate(index))
+    const result = await Result.runAndDoubleWrap(() => {
+      return this.#tryCreate(index)
+    }).then(Result.flatten)
 
     if (result.isOk()) {
-      const ok = new Ok(result.inner.inner)
-      const clean = () => result.inner.clean()
-
-      const entry = { index, result: ok }
+      const entry = { index, result }
 
       this.#allEntries[index] = entry
-      this.#allCleanups[index] = clean
-
       this.#okEntries.add(entry)
 
       this.events.emit("created", [entry]).catch(e => console.error({ e }))
@@ -146,26 +141,18 @@ export class Pool<PoolOutput = unknown, PoolError = unknown> {
     return result.clear().unwrap()
   }
 
-  /**
-   * Delete the index, restart the index, and return the entry
-   * @param element 
-   * @returns 
-   */
-  delete(index: number) {
+  async #delete(index: number) {
     const entry = this.#allEntries.at(index)
 
     if (entry === undefined)
       return undefined
 
     if (PoolOkEntry.is(entry)) {
+      await Disposable.dispose(entry.result.inner)
       this.#okEntries.delete(entry)
-      this.#allCleanups[index]()
-      delete this.#allCleanups[index]
     }
 
     delete this.#allEntries[index]
-
-    this.#start(index)
 
     this.events.emit("deleted", [entry]).catch(e => console.error({ e }))
 
@@ -173,10 +160,55 @@ export class Pool<PoolOutput = unknown, PoolError = unknown> {
   }
 
   /**
+   * Restart the index and return the previous entry
+   * @param element 
+   * @returns 
+   */
+  async restart(index: number) {
+    const entry = await this.#delete(index)
+    this.#start(index)
+    return entry
+  }
+
+  /**
+   * Modify capacity
+   * @param capacity 
+   * @returns 
+   */
+  async growOrShrink(capacity: number) {
+    if (capacity > this.#capacity) {
+      const previous = this.#capacity
+      this.#capacity = capacity
+
+      for (let i = previous; i < capacity; i++)
+        this.#start(i)
+
+      return previous
+    } else if (capacity < this.#capacity) {
+      const previous = this.#capacity
+      this.#capacity = capacity
+
+      for (let i = capacity; i < previous; i++)
+        await this.#delete(i)
+
+      return previous
+    }
+
+    return this.#capacity
+  }
+
+  /**
    * Number of open elements
    */
   get size() {
     return this.#okEntries.size
+  }
+
+  /**
+   * Number of slots
+   */
+  get capacity() {
+    return this.#capacity
   }
 
   /**
@@ -220,7 +252,7 @@ export class Pool<PoolOutput = unknown, PoolError = unknown> {
    */
   async tryGetRandom(): Promise<Result<PoolOkEntry<PoolOutput>, AggregateError>> {
     return await Result
-      .catchAndWrap(() => Promise.any(this.#allPromises))
+      .runAndDoubleWrap(() => Promise.any(this.#allPromises))
       .then(r => r.mapErrSync(e => e.cause as AggregateError))
       .then(r => r.mapSync(() => this.tryGetRandomSync().unwrap()))
   }
@@ -234,7 +266,7 @@ export class Pool<PoolOutput = unknown, PoolError = unknown> {
       return new Err(new EmptyPoolError())
 
     const entries = [...this.#okEntries]
-    const entry = Arrays.random(entries)
+    const entry = Arrays.random(entries)!
 
     return new Ok(entry)
   }
@@ -245,7 +277,7 @@ export class Pool<PoolOutput = unknown, PoolError = unknown> {
    */
   async tryGetCryptoRandom(): Promise<Result<PoolOkEntry<PoolOutput>, AggregateError>> {
     return await Result
-      .catchAndWrap(() => Promise.any(this.#allPromises))
+      .runAndDoubleWrap(() => Promise.any(this.#allPromises))
       .then(r => r.mapErrSync(e => e.cause as AggregateError))
       .then(r => r.mapSync(() => this.tryGetCryptoRandomSync().unwrap()))
   }
@@ -259,28 +291,28 @@ export class Pool<PoolOutput = unknown, PoolError = unknown> {
       return new Err(new EmptyPoolError())
 
     const entries = [...this.#okEntries]
-    const entry = Arrays.cryptoRandom(entries)
+    const entry = Arrays.cryptoRandom(entries)!
 
     return new Ok(entry)
   }
 
-  static async takeRandom<PoolOutput, PoolError>(pool: Mutex<Pool<PoolOutput, PoolError>>): Promise<Result<PoolOkEntry<PoolOutput>, AggregateError>> {
+  static async takeRandom<PoolOutput extends MaybeAsyncDisposable, PoolError>(pool: Mutex<Pool<PoolOutput, PoolError>>): Promise<Result<PoolOkEntry<PoolOutput>, AggregateError>> {
     return await pool.lock(async pool => {
       const result = await pool.tryGetRandom()
 
       if (result.isOk())
-        pool.delete(result.inner.index)
+        pool.restart(result.inner.index)
 
       return result
     })
   }
 
-  static async takeCryptoRandom<PoolOutput, PoolError>(pool: Mutex<Pool<PoolOutput, PoolError>>): Promise<Result<PoolOkEntry<PoolOutput>, AggregateError>> {
+  static async takeCryptoRandom<PoolOutput extends MaybeAsyncDisposable, PoolError>(pool: Mutex<Pool<PoolOutput, PoolError>>): Promise<Result<PoolOkEntry<PoolOutput>, AggregateError>> {
     return await pool.lock(async pool => {
       const result = await pool.tryGetCryptoRandom()
 
       if (result.isOk())
-        pool.delete(result.inner.index)
+        pool.restart(result.inner.index)
 
       return result
     })
