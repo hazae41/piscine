@@ -81,7 +81,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
    * @param params 
    */
   constructor(
-    readonly create: PoolCreator<PoolOutput, PoolError>,
+    readonly creator: PoolCreator<PoolOutput, PoolError>,
     readonly params: PoolParams = {}
   ) {
     const { capacity = 3 } = params
@@ -115,7 +115,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
     if (signal.aborted)
       return new Err(AbortedError.from(signal.reason))
 
-    return await this.create({ pool: this, index, signal })
+    return await this.creator({ pool: this, index, signal })
   }
 
   async #createAndUnwrap(index: number): Promise<void> {
