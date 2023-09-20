@@ -6,7 +6,7 @@ export class TooManyRetriesError extends Error {
   readonly name = this.#class.name
 
   constructor(options?: ErrorOptions) {
-    super(`Too many retries`)
+    super(`Too many retries`, options)
   }
 
   static from(cause: unknown) {
