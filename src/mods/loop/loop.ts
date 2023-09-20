@@ -5,8 +5,12 @@ export class TooManyRetriesError extends Error {
   readonly #class = TooManyRetriesError
   readonly name = this.#class.name
 
-  constructor() {
+  constructor(options?: ErrorOptions) {
     super(`Too many retries`)
+  }
+
+  static from(cause: unknown) {
+    return new TooManyRetriesError({ cause })
   }
 
 }
@@ -142,6 +146,8 @@ export async function tryLoop<LoopOutput, LoopError extends Looped.Infer<LoopErr
 ): Promise<Result<LoopOutput, Cancel.Inner<LoopError> | AbortedError | TooManyRetriesError>> {
   const { init = 1000, base = 2, max = 3, signal } = options
 
+  const errors = new Array<LoopError>()
+
   for (let i = 0; !signal?.aborted && i < max; i++) {
     const result = await looper(i)
 
@@ -150,10 +156,13 @@ export async function tryLoop<LoopOutput, LoopError extends Looped.Infer<LoopErr
 
     const looped = result.get()
 
-    if (looped.isSkip())
+    if (looped.isSkip()) {
+      errors.push(looped)
       continue
+    }
 
     if (looped.isRetry()) {
+      errors.push(looped)
       console.debug(`Loop failed ${i + 1} time(s)`, { error: looped.inner, looper: looper.toString() })
       await new Promise(ok => setTimeout(ok, init * (base ** i)))
       continue
@@ -164,5 +173,5 @@ export async function tryLoop<LoopOutput, LoopError extends Looped.Infer<LoopErr
 
   if (signal?.aborted)
     return new Err(AbortedError.from(signal.reason))
-  return new Err(new TooManyRetriesError())
+  return new Err(TooManyRetriesError.from(errors))
 }
