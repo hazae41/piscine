@@ -99,6 +99,13 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
       this.#start(index)
   }
 
+  /**
+   * Whether all entries are errored
+   */
+  get stagnant() {
+    return this.#allEntries.every(entry => entry.result.isErr())
+  }
+
   abort(reason?: unknown) {
     this.#controller.abort(reason)
   }
