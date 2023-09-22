@@ -38,10 +38,9 @@ export namespace PoolOkEntry {
 }
 
 export type PoolEvents<PoolOutput = unknown, PoolError = unknown> = {
+  started: (index: number) => void
   created: (entry: PoolEntry<PoolOutput, PoolError>) => void
   deleted: (entry: PoolEntry<PoolOutput, PoolError>) => void
-
-  restarted: (index: number) => void
 }
 
 export class EmptyPoolError extends Error {
@@ -100,7 +99,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
     this.#allPromises = new Array(capacity)
 
     for (let index = 0; index < capacity; index++)
-      this.#start(index)
+      this.#start(index).catch(console.warn)
   }
 
   /**
@@ -114,10 +113,11 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
     this.#controller.abort(reason)
   }
 
-  #start(index: number) {
+  async #start(index: number) {
     const promise = this.#createAndUnwrap(index)
     this.#allPromises[index] = promise
     promise.catch(e => console.debug({ e }))
+    await this.events.emit("started", [index])
   }
 
   async #tryCreate(index: number): Promise<Result<PoolOutput, PoolError | AbortedError>> {
@@ -177,8 +177,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
    */
   async restart(index: number) {
     const entry = await this.#delete(index)
-    this.#start(index)
-    await this.events.emit("restarted", [index])
+    await this.#start(index)
     return entry
   }
 
@@ -193,7 +192,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
       this.#capacity = capacity
 
       for (let i = previous; i < capacity; i++)
-        this.#start(i)
+        await this.#start(i)
 
       return previous
     } else if (capacity < this.#capacity) {
