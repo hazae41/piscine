@@ -1,7 +1,9 @@
 import { Arrays } from "@hazae41/arrays";
 import { Disposable, MaybeAsyncDisposable } from "@hazae41/cleaner";
+import { Future } from "@hazae41/future";
 import { Mutex } from "@hazae41/mutex";
-import { AbortedError, SuperEventTarget } from "@hazae41/plume";
+import { None } from "@hazae41/option";
+import { AbortedError, Plume, SuperEventTarget } from "@hazae41/plume";
 import { Catched, Err, Ok, Result } from "@hazae41/result";
 import { AbortSignals } from "libs/signals/signals.js";
 
@@ -227,7 +229,28 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
   }
 
   /**
-   * Get the element at index
+   * Get the element at index if ok, else, wait until ok or signal
+   * @param index 
+   * @returns 
+   */
+  async tryGetOrWait(index: number, signal: AbortSignal) {
+    const slot = this.#allEntries.at(index)
+
+    if (slot?.result.isOk())
+      return new Ok(slot.result.inner)
+
+    return await Plume.tryWaitOrSignal(this.events, "created", (future: Future<Ok<PoolOutput>>, entry) => {
+      if (entry.index !== index)
+        return new None()
+      if (entry.result.isErr())
+        return new None()
+      future.resolve(new Ok(entry.result.inner))
+      return new None()
+    }, signal)
+  }
+
+  /**
+   * Get the element at index if ok or err, if still loading, wait for it
    * @param index 
    * @returns 
    */
@@ -236,7 +259,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
       await this.#allPromises[index]
     } catch (e: unknown) { }
 
-    return this.tryGetSync(index).unwrap()
+    return this.#allEntries.at(index)!.result
   }
 
   /**
@@ -245,12 +268,12 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
    * @returns 
    */
   tryGetSync(index: number): Result<Result<PoolOutput, PoolError | AbortedError | Catched>, EmptySlotError> {
-    const entry = this.#allEntries.at(index)
+    const slot = this.#allEntries.at(index)
 
-    if (entry === undefined)
+    if (slot === undefined)
       return new Err(new EmptySlotError())
 
-    return new Ok(entry.result)
+    return new Ok(slot.result)
   }
 
   /**
