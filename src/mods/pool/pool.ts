@@ -40,6 +40,8 @@ export namespace PoolOkEntry {
 export type PoolEvents<PoolOutput = unknown, PoolError = unknown> = {
   created: (entry: PoolEntry<PoolOutput, PoolError>) => void
   deleted: (entry: PoolEntry<PoolOutput, PoolError>) => void
+
+  restarted: (index: number) => void
 }
 
 export class EmptyPoolError extends Error {
@@ -176,6 +178,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
   async restart(index: number) {
     const entry = await this.#delete(index)
     this.#start(index)
+    await this.events.emit("restarted", [index])
     return entry
   }
 
