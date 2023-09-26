@@ -1,8 +1,10 @@
 import { Arrays } from "@hazae41/arrays";
 import { Disposable, MaybeAsyncDisposable } from "@hazae41/cleaner";
+import { Future } from "@hazae41/future";
 import { Mutex } from "@hazae41/mutex";
-import { AbortedError, SuperEventTarget } from "@hazae41/plume";
-import { Catched, Err, Ok, Result } from "@hazae41/result";
+import { None } from "@hazae41/option";
+import { AbortedError, Plume, SuperEventTarget } from "@hazae41/plume";
+import { Catched, Err, Ok, Panic, Result } from "@hazae41/result";
 import { AbortSignals } from "libs/signals/signals.js";
 
 export interface PoolParams {
@@ -71,10 +73,25 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
 
   readonly #controller: AbortController
 
+  /**
+   * Entry by index, can be sparse
+   */
   readonly #allEntries: PoolEntry<PoolOutput, PoolError>[]
+
+  /**
+   * Promise by index, can be sparse
+   */
   readonly #allPromises: Promise<PoolOkEntry<PoolOutput>>[]
 
+  /**
+   * Entries that are ok
+   */
   readonly #okEntries = new Set<PoolOkEntry<PoolOutput>>()
+
+  /**
+   * Promises that are started (running or settled)
+   */
+  readonly #okPromises = new Set<Promise<PoolOkEntry<PoolOutput>>>()
 
   /**
    * A pool of circuits
@@ -114,6 +131,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
   async #start(index: number) {
     const promise = this.#createAndUnwrap(index)
     this.#allPromises[index] = promise
+    this.#okPromises.add(promise)
 
     /**
      * Set promise as handled
@@ -169,6 +187,10 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
     }
 
     delete this.#allEntries[index]
+
+    const promise = this.#allPromises[index]
+    delete this.#allPromises[index]
+    this.#okPromises.delete(promise)
 
     this.events.emit("deleted", [entry]).catch(e => console.error({ e }))
 
@@ -236,20 +258,45 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
   }
 
   /**
-   * Get the element at index if ok or err, if still loading, wait for it
+   * Get the element at index, if still loading, wait for it, if not started, wait for start until signal
    * @param index 
+   * @param signal 
    * @returns 
    */
-  async tryGet(index: number): Promise<Result<PoolOutput, PoolError | AbortedError | Catched>> {
-    try {
-      await this.#allPromises[index]
-    } catch (e: unknown) { }
+  async tryGetOrWait(index: number, signal = AbortSignals.never()) {
+    const current = await this.tryGet(index)
 
-    return this.#allEntries.at(index)!.result
+    if (current.isOk())
+      return current
+
+    return Plume.tryWaitOrSignal(this.events, "created", (future: Future<Ok<PoolEntry<PoolOutput, PoolError>>>, entry) => {
+      if (entry.index !== index)
+        return new None()
+      future.resolve(new Ok(entry))
+      return new None()
+    }, signal)
   }
 
   /**
-   * Get the element at index
+   * Get the element at index, if still loading, wait for it, err if not started
+   * @param index 
+   * @returns 
+   */
+  async tryGet(index: number): Promise<Result<Result<PoolOutput, PoolError | AbortedError | Catched>, EmptySlotError>> {
+    const slot = this.#allPromises.at(index)
+
+    if (slot === undefined)
+      return new Err(new EmptySlotError())
+
+    try {
+      return new Ok(await slot.then(r => r.result))
+    } catch (e: unknown) {
+      return new Ok(new Err(e as PoolError))
+    }
+  }
+
+  /**
+   * Get the element at index, err if empty
    * @param index 
    * @returns 
    */
@@ -269,7 +316,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
   async tryGetRandom(): Promise<Result<PoolOkEntry<PoolOutput>, AggregateError>> {
     while (true) {
       const first = await Result
-        .runAndWrap(() => Promise.any(this.#allPromises))
+        .runAndWrap(() => Promise.any(this.#okPromises))
         .then(r => r.mapErrSync(e => e as AggregateError))
 
       if (first.isErr())
@@ -279,6 +326,10 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
 
       if (random.isOk())
         return random
+      /**
+       * The element has been deleted already?
+       */
+      console.error(new Panic(`Could not get random element`))
       continue
     }
   }
@@ -304,7 +355,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
   async tryGetCryptoRandom(): Promise<Result<PoolOkEntry<PoolOutput>, AggregateError>> {
     while (true) {
       const first = await Result
-        .runAndWrap(() => Promise.any(this.#allPromises))
+        .runAndWrap(() => Promise.any(this.#okPromises))
         .then(r => r.mapErrSync(e => e as AggregateError))
 
       if (first.isErr())
@@ -314,6 +365,10 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
 
       if (random.isOk())
         return random
+      /**
+       * The element has been deleted already
+       */
+      console.error(new Panic(`Could not get random element`))
       continue
     }
   }
