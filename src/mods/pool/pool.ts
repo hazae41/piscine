@@ -74,7 +74,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
   readonly #controller: AbortController
 
   readonly #allEntries: PoolEntry<PoolOutput, PoolError>[]
-  readonly #allPromises: Promise<void>[]
+  readonly #allPromises: Promise<PoolOkEntry<PoolOutput>>[]
 
   readonly #okEntries = new Set<PoolOkEntry<PoolOutput>>()
 
@@ -129,7 +129,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
     return await this.creator({ pool: this, index, signal })
   }
 
-  async #createAndUnwrap(index: number): Promise<void> {
+  async #createAndUnwrap(index: number): Promise<PoolOkEntry<PoolOutput>> {
     const result = await Result.runAndDoubleWrap(() => {
       return this.#tryCreate(index)
     }).then(Result.flatten)
@@ -141,15 +141,17 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
       this.#okEntries.add(entry)
 
       this.events.emit("created", [entry]).catch(e => console.error({ e }))
+
+      return entry
     } else {
       const entry = { index, result }
 
       this.#allEntries[index] = entry
 
       this.events.emit("created", [entry]).catch(e => console.error({ e }))
-    }
 
-    return result.clear().unwrap()
+      throw result.inner
+    }
   }
 
   async #delete(index: number) {
@@ -304,18 +306,27 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
   }
 
   /**
-   * Wait for any circuit to be created, then get a random one using WebCrypto's CSPRNG
+   * Wait for any element to be created, then get a random one using WebCrypto's CSPRNG
    * @returns 
    */
   async tryGetCryptoRandom(): Promise<Result<PoolOkEntry<PoolOutput>, AggregateError>> {
-    return await Result
-      .runAndDoubleWrap(() => Promise.any(this.#allPromises))
-      .then(r => r.mapErrSync(e => e.cause as AggregateError))
-      .then(r => r.mapSync(() => this.tryGetCryptoRandomSync().unwrap()))
+    const found = await Result
+      .runAndWrap(() => Promise.any(this.#allPromises))
+      .then(r => r.mapErrSync(e => e as AggregateError))
+
+    if (found.isErr())
+      return found
+
+    try {
+      return new Ok(this.tryGetCryptoRandomSync().unwrap())
+    } catch (e: unknown) {
+      console.log("oops", found.inner)
+      throw e
+    }
   }
 
   /**
-   * Get a random circuit from the pool using WebCrypto's CSPRNG, throws if none available
+   * Get a random element from the pool using WebCrypto's CSPRNG, throws if none available
    * @returns 
    */
   tryGetCryptoRandomSync(): Result<PoolOkEntry<PoolOutput>, EmptyPoolError> {
