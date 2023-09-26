@@ -258,7 +258,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
   }
 
   /**
-   * Get the element at index, if still loading, wait for it, if not started, wait for start until signal
+   * Get the element at index, if still loading, wait for it, if not started, wait for created until signal
    * @param index 
    * @param signal 
    * @returns 
@@ -269,12 +269,14 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
     if (current.isOk())
       return current
 
-    return Plume.tryWaitOrSignal(this.events, "created", (future: Future<Ok<PoolEntry<PoolOutput, PoolError>>>, entry) => {
-      if (entry.index !== index)
+    await Plume.tryWaitOrSignal(this.events, "started", (future: Future<Ok<void>>, i) => {
+      if (i !== index)
         return new None()
-      future.resolve(new Ok(entry))
+      future.resolve(Ok.void())
       return new None()
     }, signal)
+
+    return await this.tryGet(index).then(r => r.unwrap())
   }
 
   /**
