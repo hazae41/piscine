@@ -258,7 +258,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
   }
 
   /**
-   * Get the element at index, if still loading, wait for it, if not started, wait for created until signal
+   * Get the element at index, if still loading, wait for it, if not started, wait for started until signal, and wait for it
    * @param index 
    * @param signal 
    * @returns 
