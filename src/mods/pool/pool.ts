@@ -116,7 +116,12 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
   async #start(index: number) {
     const promise = this.#createAndUnwrap(index)
     this.#allPromises[index] = promise
-    promise.catch(e => console.debug({ e }))
+
+    /**
+     * Set promise as handled
+     */
+    promise.catch(() => { })
+
     await this.events.emit("started", [index])
   }
 
