@@ -140,7 +140,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
      */
     promise.catch(() => { })
 
-    this.events.emit("started", [index])
+    await this.events.emit("started", [index])
   }
 
   async #tryCreate(index: number): Promise<Result<PoolOutput, PoolError | AbortedError>> {
@@ -192,13 +192,13 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
     delete this.#allPromises[index]
 
     if (PoolOkEntry.is(entry)) {
-      Disposable.dispose(entry.result.inner)
+      await Disposable.dispose(entry.result.inner)
       this.#okEntries.delete(entry)
     }
 
     delete this.#allEntries[index]
 
-    this.events.emit("deleted", [entry])
+    await this.events.emit("deleted", [entry])
 
     return entry
   }
@@ -209,9 +209,11 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
    * @returns 
    */
   async restart(index: number) {
-    const entry = await this.#delete(index)
-    await this.#start(index)
-    return entry
+    return await this.mutex.lock(async () => {
+      const entry = await this.#delete(index)
+      await this.#start(index)
+      return entry
+    })
   }
 
   /**
@@ -296,6 +298,8 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
    * @returns 
    */
   async tryGet(index: number): Promise<Result<Result<PoolOutput, PoolError | AbortedError | Catched>, EmptySlotError>> {
+    await this.mutex.promise
+
     const slot = this.#allPromises.at(index)
 
     if (slot === undefined)
@@ -313,7 +317,9 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
    * @param index 
    * @returns 
    */
-  tryGetSync(index: number): Result<Result<PoolOutput, PoolError | AbortedError | Catched>, EmptySlotError> {
+  async tryGetSync(index: number): Promise<Result<Result<PoolOutput, PoolError | AbortedError | Catched>, EmptySlotError>> {
+    await this.mutex.promise
+
     const slot = this.#allEntries.at(index)
 
     if (slot === undefined)
@@ -327,6 +333,8 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
    * @returns 
    */
   async tryGetRandom(): Promise<Result<PoolOkEntry<PoolOutput>, AggregateError>> {
+    await this.mutex.promise
+
     const first = await Result
       .runAndWrap(() => Promise.any(this.#okPromises))
       .then(r => r.mapErrSync(e => e as AggregateError))
@@ -334,7 +342,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
     if (first.isErr())
       return first
 
-    const random = this.tryGetRandomSync()
+    const random = await this.tryGetRandomSync()
 
     if (random.isOk())
       return random
@@ -349,7 +357,9 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
    * Get a random element from the pool using Math's PRNG, throws if none available
    * @returns 
    */
-  tryGetRandomSync(): Result<PoolOkEntry<PoolOutput>, EmptyPoolError> {
+  async tryGetRandomSync(): Promise<Result<PoolOkEntry<PoolOutput>, EmptyPoolError>> {
+    await this.mutex.promise
+
     if (this.#okEntries.size === 0)
       return new Err(new EmptyPoolError())
 
@@ -364,6 +374,8 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
    * @returns 
    */
   async tryGetCryptoRandom(): Promise<Result<PoolOkEntry<PoolOutput>, AggregateError>> {
+    await this.mutex.promise
+
     const first = await Result
       .runAndWrap(() => Promise.any(this.#okPromises))
       .then(r => r.mapErrSync(e => e as AggregateError))
@@ -371,7 +383,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
     if (first.isErr())
       return first
 
-    const random = this.tryGetCryptoRandomSync()
+    const random = await this.tryGetCryptoRandomSync()
 
     if (random.isOk())
       return random
@@ -386,7 +398,9 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
    * Get a random element from the pool using WebCrypto's CSPRNG, throws if none available
    * @returns 
    */
-  tryGetCryptoRandomSync(): Result<PoolOkEntry<PoolOutput>, EmptyPoolError> {
+  async tryGetCryptoRandomSync(): Promise<Result<PoolOkEntry<PoolOutput>, EmptyPoolError>> {
+    await this.mutex.promise
+
     if (this.#okEntries.size === 0)
       return new Err(new EmptyPoolError())
 
