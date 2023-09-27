@@ -209,11 +209,9 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
    * @returns 
    */
   async restart(index: number) {
-    return await this.mutex.lock(async () => {
-      const entry = await this.#delete(index)
-      await this.#start(index)
-      return entry
-    })
+    const entry = await this.#delete(index)
+    await this.#start(index)
+    return entry
   }
 
   /**
