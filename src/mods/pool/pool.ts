@@ -190,7 +190,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
     delete this.#allPromises[index]
 
     if (PoolOkEntry.is(entry)) {
-      await Disposable.dispose(entry.result.inner)
+      Disposable.dispose(entry.result.inner)
       this.#okEntries.delete(entry)
     }
 
