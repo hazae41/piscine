@@ -140,7 +140,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
      */
     promise.catch(() => { })
 
-    await this.events.emit("started", [index])
+    this.events.emit("started", [index])
   }
 
   async #tryCreate(index: number): Promise<Result<PoolOutput, PoolError | AbortedError>> {
