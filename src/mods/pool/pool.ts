@@ -73,6 +73,8 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
 
   readonly #controller: AbortController
 
+  readonly mutex = new Mutex(undefined)
+
   /**
    * Entry by index, can be sparse
    */
@@ -196,7 +198,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
 
     delete this.#allEntries[index]
 
-    await this.events.emit("deleted", [entry])
+    this.events.emit("deleted", [entry])
 
     return entry
   }
@@ -207,9 +209,11 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
    * @returns 
    */
   async restart(index: number) {
-    const entry = await this.#delete(index)
-    await this.#start(index)
-    return entry
+    return await this.mutex.lock(async () => {
+      const entry = await this.#delete(index)
+      await this.#start(index)
+      return entry
+    })
   }
 
   /**
@@ -218,25 +222,27 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
    * @returns 
    */
   async growOrShrink(capacity: number) {
-    if (capacity > this.#capacity) {
-      const previous = this.#capacity
-      this.#capacity = capacity
+    return await this.mutex.lock(async () => {
+      if (capacity > this.#capacity) {
+        const previous = this.#capacity
+        this.#capacity = capacity
 
-      for (let i = previous; i < capacity; i++)
-        await this.#start(i)
+        for (let i = previous; i < capacity; i++)
+          await this.#start(i)
 
-      return previous
-    } else if (capacity < this.#capacity) {
-      const previous = this.#capacity
-      this.#capacity = capacity
+        return previous
+      } else if (capacity < this.#capacity) {
+        const previous = this.#capacity
+        this.#capacity = capacity
 
-      for (let i = capacity; i < previous; i++)
-        await this.#delete(i)
+        for (let i = capacity; i < previous; i++)
+          await this.#delete(i)
 
-      return previous
-    }
+        return previous
+      }
 
-    return this.#capacity
+      return this.#capacity
+    })
   }
 
   /**
