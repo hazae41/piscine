@@ -337,7 +337,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
     /**
      * The element has been deleted already?
      */
-    console.error(new Panic(`Could not get random element`))
+    console.error(`Could not get random element`, { first })
     throw new Panic(`Could not get random element`)
   }
 
@@ -374,7 +374,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
     /**
      * The element has been deleted already?
      */
-    console.error(new Panic(`Could not get random element`))
+    console.error(`Could not get random element`, { first })
     throw new Panic(`Could not get random element`)
   }
 
