@@ -186,7 +186,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
     const promise = this.#allPromises.at(index)
 
     if (promise == null)
-      throw new Panic(`Promise is null`)
+      throw Panic.from(new Error(`Promise is null`))
 
     this.#okPromises.delete(promise)
     delete this.#allPromises[index]
@@ -350,7 +350,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
      * The element has been deleted already?
      */
     console.error(`Could not get random element`, { first })
-    throw new Panic(`Could not get random element`)
+    throw Panic.from(new Error(`Could not get random element`))
   }
 
   /**
@@ -391,7 +391,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
      * The element has been deleted already?
      */
     console.error(`Could not get random element`, { first })
-    throw new Panic(`Could not get random element`)
+    throw Panic.from(new Error(`Could not get random element`))
   }
 
   /**
