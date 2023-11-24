@@ -1,46 +1,57 @@
 import { Arrays } from "@hazae41/arrays";
-import { Disposable, MaybeAsyncDisposable } from "@hazae41/cleaner";
+import { Box, MaybeDisposable } from "@hazae41/box";
+import { Disposable, Disposer } from "@hazae41/cleaner";
 import { Future } from "@hazae41/future";
 import { Mutex } from "@hazae41/mutex";
 import { None } from "@hazae41/option";
-import { AbortedError, Plume, SuperEventTarget } from "@hazae41/plume";
-import { Catched, Err, Ok, Panic, Result } from "@hazae41/result";
+import { Plume, SuperEventTarget } from "@hazae41/plume";
+import { Err, Ok, Panic, Result } from "@hazae41/result";
 import { AbortSignals } from "libs/signals/signals.js";
 
 export interface PoolParams {
   readonly capacity?: number
-  readonly signal?: AbortSignal
 }
 
-export interface PoolCreatorParams<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable, PoolError = unknown> {
-  readonly pool: Pool<PoolOutput, PoolError>
+export interface PoolCreatorParams<T extends MaybeDisposable> {
+  readonly pool: Pool<T>
   readonly index: number
-  readonly signal?: AbortSignal
 }
 
-export type PoolCreator<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable, PoolError = unknown> =
-  (params: PoolCreatorParams<PoolOutput, PoolError>) => Promise<Result<PoolOutput, PoolError>>
+export type PoolCreator<T extends MaybeDisposable> =
+  (params: PoolCreatorParams<T>) => Promise<Result<Disposer<Box<T>>, Error>>
 
-export interface PoolEntry<PoolOutput = unknown, PoolError = unknown> {
+export interface PoolEntry<T> {
   readonly index: number,
-  readonly result: Result<PoolOutput, PoolError | AbortedError | Catched>
+  readonly value: T
 }
 
-export interface PoolOkEntry<PoolOutput = unknown> {
-  readonly index: number,
-  readonly result: Ok<PoolOutput>
+export namespace PoolEntry {
+
+  export function mapSync<X, Y>(entry: PoolEntry<X>, f: (x: X) => Y): PoolEntry<Y> {
+    return { index: entry.index, value: f(entry.value) }
+  }
+
 }
+
+export type PoolResultEntry<T extends MaybeDisposable> =
+  | PoolEntry<Result<Disposer<Box<T>>, Error>>
+
+export type PoolOkEntry<T extends MaybeDisposable> =
+  | PoolEntry<Ok<Disposer<Box<T>>>>
+
 
 export namespace PoolOkEntry {
-  export function is<T, E>(x: PoolEntry<T, E>): x is PoolOkEntry<T> {
-    return x.result.isOk()
+
+  export function is<T extends MaybeDisposable>(entry: PoolResultEntry<T>): entry is PoolOkEntry<T> {
+    return entry.value.isOk()
   }
+
 }
 
-export type PoolEvents<PoolOutput = unknown, PoolError = unknown> = {
+export type PoolEvents<T extends MaybeDisposable> = {
   started: (index: number) => void
-  created: (entry: PoolEntry<PoolOutput, PoolError>) => void
-  deleted: (entry: PoolEntry<PoolOutput, PoolError>) => void
+  created: (entry: PoolEntry<Result<Box<T>, Error>>) => void
+  deleted: (entry: PoolEntry<Result<Box<T>, Error>>) => void
 }
 
 export class EmptyPoolError extends Error {
@@ -63,37 +74,33 @@ export class EmptySlotError extends Error {
 
 }
 
-export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable, PoolError = unknown> {
+export class Pool<T extends MaybeDisposable> {
 
   #capacity: number
 
-  readonly events = new SuperEventTarget<PoolEvents<PoolOutput, PoolError>>()
-
-  readonly signal: AbortSignal
-
-  readonly #controller: AbortController
+  readonly events = new SuperEventTarget<PoolEvents<T>>()
 
   readonly mutex = new Mutex(undefined)
 
   /**
    * Entry by index, can be sparse
    */
-  readonly #allEntries: PoolEntry<PoolOutput, PoolError>[]
+  readonly #allEntries: PoolEntry<Result<Disposer<Box<T>>, Error>>[]
 
   /**
    * Promise by index, can be sparse
    */
-  readonly #allPromises: Promise<PoolOkEntry<PoolOutput>>[]
+  readonly #allPromises: Promise<PoolEntry<Ok<Disposer<Box<T>>>>>[]
 
   /**
    * Entries that are ok
    */
-  readonly #okEntries = new Set<PoolOkEntry<PoolOutput>>()
+  readonly #okEntries = new Set<PoolEntry<Ok<Disposer<Box<T>>>>>()
 
   /**
    * Promises that are started (running or settled)
    */
-  readonly #okPromises = new Set<Promise<PoolOkEntry<PoolOutput>>>()
+  readonly #okPromises = new Set<Promise<PoolEntry<Ok<Disposer<Box<T>>>>>>()
 
   /**
    * A pool of circuits
@@ -101,16 +108,12 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
    * @param params 
    */
   constructor(
-    readonly creator: PoolCreator<PoolOutput, PoolError>,
+    readonly creator: PoolCreator<T>,
     readonly params: PoolParams = {}
   ) {
     const { capacity = 3 } = params
 
     this.#capacity = capacity
-
-    this.#controller = new AbortController()
-
-    this.signal = AbortSignals.merge(this.#controller.signal, params.signal)
 
     this.#allEntries = new Array(capacity)
     this.#allPromises = new Array(capacity)
@@ -123,58 +126,46 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
    * Whether all entries are errored
    */
   get stagnant() {
-    return this.#allEntries.every(entry => entry.result.isErr())
-  }
-
-  abort(reason?: unknown) {
-    this.#controller.abort(reason)
+    return this.#allEntries.every(entry => entry.value.isErr())
   }
 
   async #start(index: number) {
-    const promise = this.#createAndUnwrap(index)
-    this.#allPromises[index] = promise
-    this.#okPromises.add(promise)
+    const promise = this.#createOrThrow(index)
 
     /**
      * Set promise as handled
      */
     promise.catch(() => { })
 
+    this.#allPromises[index] = promise
+    this.#okPromises.add(promise)
+
     await this.events.emit("started", [index])
   }
 
-  async #tryCreate(index: number): Promise<Result<PoolOutput, PoolError | AbortedError>> {
-    const { signal } = this
+  async #createOrThrow(index: number): Promise<PoolEntry<Ok<Disposer<Box<T>>>>> {
+    const value = await Result.runAndDoubleWrap(async () => {
+      return await this.creator({ pool: this, index })
+    }).then(r => r.flatten())
 
-    if (signal.aborted)
-      return new Err(AbortedError.from(signal.reason))
-
-    return await this.creator({ pool: this, index, signal })
-  }
-
-  async #createAndUnwrap(index: number): Promise<PoolOkEntry<PoolOutput>> {
-    const result = await Result.runAndDoubleWrap(() => {
-      return this.#tryCreate(index)
-    }).then(Result.flatten)
-
-    if (result.isOk()) {
-      const entry = { index, result }
+    if (value.isOk()) {
+      const entry = { index, value }
 
       this.#allEntries[index] = entry
       this.#okEntries.add(entry)
 
-      await this.events.emit("created", [entry])
+      await this.events.emit("created", [PoolEntry.mapSync(entry, x => x.mapSync(x => x.inner))])
 
       return entry
-    } else {
-      const entry = { index, result }
-
-      this.#allEntries[index] = entry
-
-      await this.events.emit("created", [entry])
-
-      throw result.inner
     }
+
+    const entry = { index, value }
+
+    this.#allEntries[index] = entry
+
+    await this.events.emit("created", [entry])
+
+    throw value.inner
   }
 
   async #delete(index: number) {
@@ -192,13 +183,14 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
     delete this.#allPromises[index]
 
     if (PoolOkEntry.is(entry)) {
-      await Disposable.dispose(entry.result.inner)
+      await Disposable.dispose(entry.value.inner)
+      await Disposable.dispose(entry.value.inner.inner)
       this.#okEntries.delete(entry)
     }
 
     delete this.#allEntries[index]
 
-    await this.events.emit("deleted", [entry])
+    await this.events.emit("deleted", [PoolEntry.mapSync(entry, x => x.mapSync(x => x.inner))])
 
     return entry
   }
@@ -273,7 +265,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
    * @param signal 
    * @returns 
    */
-  async tryGetOrWait(index: number, signal = AbortSignals.never()): Promise<Result<PoolOutput, PoolError | AbortedError | Catched>> {
+  async tryGetOrWait(index: number, signal = AbortSignals.never()): Promise<Result<Box<T>, Error>> {
     const current = await this.tryGet(index)
 
     if (current.isOk())
@@ -297,7 +289,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
    * @param index 
    * @returns 
    */
-  async tryGet(index: number): Promise<Result<Result<PoolOutput, PoolError | AbortedError | Catched>, EmptySlotError>> {
+  async tryGet(index: number): Promise<Result<Result<Box<T>, Error>, EmptySlotError>> {
     await this.mutex.promise
 
     const slot = this.#allPromises.at(index)
@@ -306,9 +298,9 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
       return new Err(new EmptySlotError())
 
     try {
-      return new Ok(await slot.then(r => r.result))
+      return new Ok(new Ok(await slot.then(r => r.value.inner.inner)))
     } catch (e: unknown) {
-      return new Ok(new Err(e as PoolError))
+      return new Ok(new Err(e as Error))
     }
   }
 
@@ -317,7 +309,7 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
    * @param index 
    * @returns 
    */
-  async tryGetSync(index: number): Promise<Result<Result<PoolOutput, PoolError | AbortedError | Catched>, EmptySlotError>> {
+  async tryGetSync(index: number): Promise<Result<Result<Box<T>, Error>, EmptySlotError>> {
     await this.mutex.promise
 
     const slot = this.#allEntries.at(index)
@@ -325,39 +317,39 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
     if (slot === undefined)
       return new Err(new EmptySlotError())
 
-    return new Ok(slot.result)
+    return new Ok(slot.value.mapSync(x => x.inner))
   }
 
   /**
    * Wait for any element to be created, then get a random one using Math's PRNG
    * @returns 
    */
-  async tryGetRandom(): Promise<Result<PoolOkEntry<PoolOutput>, AggregateError>> {
-    await this.mutex.promise
+  async tryGetRandom(): Promise<Result<PoolEntry<Box<T>>, AggregateError>> {
+    return await Result.unthrow(async t => {
+      await this.mutex.promise
 
-    const first = await Result
-      .runAndWrap(() => Promise.any(this.#okPromises))
-      .then(r => r.mapErrSync(e => e as AggregateError))
+      const first = await Result
+        .runAndWrap(() => Promise.any(this.#okPromises))
+        .then(r => r.throw(t as any))
 
-    if (first.isErr())
-      return first
+      const random = await this.tryGetRandomSync()
 
-    const random = await this.tryGetRandomSync()
+      if (random.isOk())
+        return random
 
-    if (random.isOk())
-      return random
-    /**
-     * The element has been deleted already?
-     */
-    console.error(`Could not get random element`, { first })
-    throw Panic.from(new Error(`Could not get random element`))
+      /**
+       * The element has been deleted already?
+       */
+      console.error(`Could not get random element`, { first })
+      throw Panic.from(new Error(`Could not get random element`))
+    })
   }
 
   /**
    * Get a random element from the pool using Math's PRNG, throws if none available
    * @returns 
    */
-  async tryGetRandomSync(): Promise<Result<PoolOkEntry<PoolOutput>, EmptyPoolError>> {
+  async tryGetRandomSync(): Promise<Result<PoolEntry<Box<T>>, EmptyPoolError>> {
     await this.mutex.promise
 
     if (this.#okEntries.size === 0)
@@ -366,39 +358,39 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
     const entries = [...this.#okEntries]
     const entry = Arrays.random(entries)!
 
-    return new Ok(entry)
+    return new Ok(PoolEntry.mapSync(entry, x => x.inner.inner))
   }
 
   /**
    * Wait for any element to be created, then get a random one using WebCrypto's CSPRNG
    * @returns 
    */
-  async tryGetCryptoRandom(): Promise<Result<PoolOkEntry<PoolOutput>, AggregateError>> {
-    await this.mutex.promise
+  async tryGetCryptoRandom(): Promise<Result<PoolEntry<Box<T>>, AggregateError>> {
+    return await Result.unthrow(async t => {
+      await this.mutex.promise
 
-    const first = await Result
-      .runAndWrap(() => Promise.any(this.#okPromises))
-      .then(r => r.mapErrSync(e => e as AggregateError))
+      const first = await Result
+        .runAndWrap(() => Promise.any(this.#okPromises))
+        .then(r => r.throw(t as any))
 
-    if (first.isErr())
-      return first
+      const random = await this.tryGetCryptoRandomSync()
 
-    const random = await this.tryGetCryptoRandomSync()
+      if (random.isOk())
+        return random
 
-    if (random.isOk())
-      return random
-    /**
-     * The element has been deleted already?
-     */
-    console.error(`Could not get random element`, { first })
-    throw Panic.from(new Error(`Could not get random element`))
+      /**
+       * The element has been deleted already?
+       */
+      console.error(`Could not get random element`, { first })
+      throw Panic.from(new Error(`Could not get random element`))
+    })
   }
 
   /**
-   * Get a random element from the pool using WebCrypto's CSPRNG, throws if none available
+   * Get a random element from the pool using WebCrypto's CSPRNG
    * @returns 
    */
-  async tryGetCryptoRandomSync(): Promise<Result<PoolOkEntry<PoolOutput>, EmptyPoolError>> {
+  async tryGetCryptoRandomSync(): Promise<Result<PoolEntry<Box<T>>, EmptyPoolError>> {
     await this.mutex.promise
 
     if (this.#okEntries.size === 0)
@@ -407,29 +399,61 @@ export class Pool<PoolOutput extends MaybeAsyncDisposable = MaybeAsyncDisposable
     const entries = [...this.#okEntries]
     const entry = Arrays.cryptoRandom(entries)!
 
-    return new Ok(entry)
+    return new Ok(PoolEntry.mapSync(entry, x => x.inner.inner))
   }
 
-  static async takeRandom<PoolOutput extends MaybeAsyncDisposable, PoolError>(pool: Mutex<Pool<PoolOutput, PoolError>>): Promise<Result<PoolOkEntry<PoolOutput>, AggregateError>> {
+  /**
+   * Take a random element from the pool using Math's PRNG
+   * @param pool 
+   * @returns 
+   */
+  static async tryTakeRandom<T extends MaybeDisposable>(pool: Mutex<Pool<T>>) {
     return await pool.lock(async pool => {
-      const result = await pool.tryGetRandom()
-
-      if (result.isOk())
-        pool.restart(result.inner.index)
-
-      return result
+      return await Result.unthrow<Result<PoolEntry<T>, AggregateError>>(async t => {
+        const entry = await pool.tryGetRandom().then(r => r.throw(t))
+        const entry2 = PoolEntry.mapSync(entry, x => x.unwrapOrThrow())
+        pool.restart(entry.index)
+        return new Ok(entry2)
+      })
     })
   }
 
-  static async takeCryptoRandom<PoolOutput extends MaybeAsyncDisposable, PoolError>(pool: Mutex<Pool<PoolOutput, PoolError>>): Promise<Result<PoolOkEntry<PoolOutput>, AggregateError>> {
+  /**
+   * Take a random element from the pool using WebCrypto's CSPRNG
+   * @param pool 
+   * @returns 
+   */
+  static async tryTakeCryptoRandom<T extends MaybeDisposable>(pool: Mutex<Pool<T>>) {
     return await pool.lock(async pool => {
-      const result = await pool.tryGetCryptoRandom()
-
-      if (result.isOk())
-        pool.restart(result.inner.index)
-
-      return result
+      return await Result.unthrow<Result<PoolEntry<T>, AggregateError>>(async t => {
+        const entry = await pool.tryGetCryptoRandom().then(r => r.throw(t))
+        const entry2 = PoolEntry.mapSync(entry, x => x.unwrapOrThrow())
+        pool.restart(entry.index)
+        return new Ok(entry2)
+      })
     })
   }
+
+  // static async takeRandom<PoolOutput extends SyncOrAsyncDisposable, PoolError>(pool: Mutex<Pool<PoolOutput, PoolError>>): Promise<Result<PoolOkEntry<PoolOutput>, AggregateError>> {
+  //   return await pool.lock(async pool => {
+  //     const result = await pool.tryGetRandom()
+
+  //     if (result.isOk())
+  //       pool.restart(result.inner.index)
+
+  //     return result
+  //   })
+  // }
+
+  // static async takeCryptoRandom<PoolOutput extends SyncOrAsyncDisposable, PoolError>(pool: Mutex<Pool<PoolOutput, PoolError>>): Promise<Result<PoolOkEntry<PoolOutput>, AggregateError>> {
+  //   return await pool.lock(async pool => {
+  //     const result = await pool.tryGetCryptoRandom()
+
+  //     if (result.isOk())
+  //       pool.restart(result.inner.index)
+
+  //     return result
+  //   })
+  // }
 
 }
