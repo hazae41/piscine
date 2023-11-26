@@ -292,6 +292,27 @@ export class Pool<T extends MaybeDisposable> {
     }
   }
 
+  async trySync<U extends MaybeDisposable>(params: PoolCreatorParams<U>, signal = AbortSignals.never()) {
+    const { index, pool } = params
+
+    const result = await this.tryGetOrWait(index % this.capacity, signal)
+
+    if (result.isErr())
+      return result
+
+    if (result.inner.isOk())
+      return new Ok(result.inner)
+
+    this.events.on("started", async i => {
+      if (i !== (index % this.capacity))
+        return new None()
+      pool.restart(index)
+      return new None()
+    }, { passive: true, once: true })
+
+    return new Ok(result.inner)
+  }
+
   /**
    * Get the element at index, if still loading, wait for it, err if not started
    * @param index 
