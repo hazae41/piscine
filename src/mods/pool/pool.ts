@@ -5,7 +5,7 @@ import { Future } from "@hazae41/future";
 import { Mutex } from "@hazae41/mutex";
 import { None } from "@hazae41/option";
 import { Plume, SuperEventTarget } from "@hazae41/plume";
-import { Err, Ok, Panic, Result } from "@hazae41/result";
+import { Err, Ok, Result } from "@hazae41/result";
 import { AbortSignals } from "libs/signals/signals.js";
 
 export interface PoolParams {
@@ -15,6 +15,7 @@ export interface PoolParams {
 export interface PoolCreatorParams<T extends MaybeDisposable> {
   readonly pool: Pool<T>
   readonly index: number
+  readonly signal: AbortSignal
 }
 
 export type PoolCreator<T extends MaybeDisposable> =
@@ -80,15 +81,17 @@ export class Pool<T extends MaybeDisposable> {
 
   readonly events = new SuperEventTarget<PoolEvents<T>>()
 
+  readonly #allAborters = new Array<AbortController>()
+
   /**
    * Entry by index, can be sparse
    */
-  readonly #allEntries: PoolEntry<T>[]
+  readonly #allEntries = new Array<PoolEntry<T>>()
 
   /**
    * Promise by index, can be sparse
    */
-  readonly #allPromises: Promise<PoolOkEntry<T>>[]
+  readonly #allPromises = new Array<Promise<PoolOkEntry<T>>>()
 
   /**
    * Entries that are ok
@@ -117,9 +120,6 @@ export class Pool<T extends MaybeDisposable> {
     const { capacity = 3 } = params
 
     this.#capacity = capacity
-
-    this.#allEntries = new Array()
-    this.#allPromises = new Array()
 
     for (let index = 0; index < capacity; index++)
       this.#start(index)
@@ -171,8 +171,12 @@ export class Pool<T extends MaybeDisposable> {
   }
 
   async #createOrThrow(index: number): Promise<PoolOkEntry<T>> {
+    const aborter = new AbortController()
+    this.#allAborters[index] = aborter
+    const { signal } = aborter
+
     const result = await Result.runAndDoubleWrap(async () => {
-      return await this.creator({ pool: this, index })
+      return await this.creator({ pool: this, index, signal })
     }).then(r => r.flatten())
 
     if (result.isOk()) {
@@ -197,34 +201,41 @@ export class Pool<T extends MaybeDisposable> {
   }
 
   #delete(index: number) {
-    const entry = this.#allEntries.at(index)
+    const aborter = this.#allAborters.at(index)
 
-    if (entry == null)
-      return undefined
+    if (aborter != null) {
+      aborter.abort()
+      delete this.#allAborters[index]
+    }
 
     const promise = this.#allPromises.at(index)
 
-    if (promise == null)
-      throw Panic.from(new Error(`Promise is null`))
-
-    this.#startedPromises.delete(promise)
-    delete this.#allPromises[index]
-
-    if (entry.isOk()) {
-      entry.inner[Symbol.dispose]()
-      entry.inner.inner[Symbol.dispose]()
-      this.#okEntries.delete(entry)
+    if (promise != null) {
+      this.#startedPromises.delete(promise)
+      delete this.#allPromises[index]
     }
 
-    if (entry.isErr()) {
-      this.#errEntries.delete(entry)
+    const entry = this.#allEntries.at(index)
+
+    if (entry != null) {
+      if (entry.isOk()) {
+        entry.inner[Symbol.dispose]()
+        entry.inner.inner[Symbol.dispose]()
+        this.#okEntries.delete(entry)
+      }
+
+      if (entry.isErr()) {
+        this.#errEntries.delete(entry)
+      }
+
+      delete this.#allEntries[index]
+
+      this.events.emit("deleted", [entry]).catch(console.error)
+
+      return entry
     }
 
-    delete this.#allEntries[index]
-
-    this.events.emit("deleted", [entry]).catch(console.error)
-
-    return entry
+    return undefined
   }
 
   /**
@@ -278,9 +289,6 @@ export class Pool<T extends MaybeDisposable> {
 
     if (result.isErr())
       return result
-
-    if (result.inner.isOk())
-      return new Ok(result.inner)
 
     this.events.on("started", async i => {
       if (i !== (index % this.capacity))
