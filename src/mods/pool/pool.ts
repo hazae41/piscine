@@ -271,11 +271,11 @@ export class Pool<T extends MaybeDisposable> {
    * @param signal 
    * @returns 
    */
-  async tryGetOrWait(index: number, signal = AbortSignals.never()): Promise<Result<PoolEntry<T>, Error>> {
+  async tryGetOrWait(index: number, signal = AbortSignals.never()): Promise<Result<PoolOkEntry<T>, Error>> {
     while (true) {
       const current = await this.tryGet(index)
 
-      if (current.isOk())
+      if (current.isOk() && current.inner.isOk())
         return new Ok(current.inner)
 
       const aborted = await Plume.tryWaitOrSignal(this.events, "started", (future: Future<Ok<void>>, i) => {
