@@ -282,8 +282,8 @@ export class Pool<T extends MaybeDisposable> {
    * @param signal 
    * @returns 
    */
-  async trySync<U extends MaybeDisposable>(params: PoolCreatorParams<U>, signal = AbortSignals.never()) {
-    const { index, pool } = params
+  async trySync<U extends MaybeDisposable>(params: PoolCreatorParams<U>) {
+    const { index, pool, signal } = params
 
     const result = await this.tryGetOrWait(index % this.capacity, signal)
 
