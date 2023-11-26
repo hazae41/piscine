@@ -266,7 +266,34 @@ export class Pool<T extends MaybeDisposable> {
   }
 
   /**
-   * Get the element at index, if still loading, wait for it, if not started, wait for started until signal, and wait for it
+   * Get the entry at index, restart the subpool when the element is restarted
+   * @param params 
+   * @param signal 
+   * @returns 
+   */
+  async trySync<U extends MaybeDisposable>(params: PoolCreatorParams<U>, signal = AbortSignals.never()) {
+    const { index, pool } = params
+
+    const result = await this.tryGetOrWait(index % this.capacity, signal)
+
+    if (result.isErr())
+      return result
+
+    if (result.inner.isOk())
+      return new Ok(result.inner)
+
+    this.events.on("started", async i => {
+      if (i !== (index % this.capacity))
+        return new None()
+      pool.restart(index)
+      return new None()
+    }, { passive: true, once: true })
+
+    return new Ok(result.inner)
+  }
+
+  /**
+   * Get the entry at index, if still loading, wait for it, if not started, wait for started until signal, and wait for it
    * @param index 
    * @param signal 
    * @returns 
@@ -290,27 +317,6 @@ export class Pool<T extends MaybeDisposable> {
 
       continue
     }
-  }
-
-  async trySync<U extends MaybeDisposable>(params: PoolCreatorParams<U>, signal = AbortSignals.never()) {
-    const { index, pool } = params
-
-    const result = await this.tryGetOrWait(index % this.capacity, signal)
-
-    if (result.isErr())
-      return result
-
-    if (result.inner.isOk())
-      return new Ok(result.inner)
-
-    this.events.on("started", async i => {
-      if (i !== (index % this.capacity))
-        return new None()
-      pool.restart(index)
-      return new None()
-    }, { passive: true, once: true })
-
-    return new Ok(result.inner)
   }
 
   /**
