@@ -276,26 +276,6 @@ export class Pool<T extends MaybeDisposable> {
     return this.#capacity
   }
 
-  async restartIfAny<U extends MaybeDisposable>(params: PoolCreatorParams<U>) {
-    const { index, pool, signal } = params
-
-    this.events.on("started", async () => {
-      pool.restart(index)
-      return new None()
-    }, { signal, passive: true, once: true })
-  }
-
-  async restartIfEntry<U extends MaybeDisposable>(entry: PoolEntry<T>, params: PoolCreatorParams<U>) {
-    const { index, pool, signal } = params
-
-    this.events.on("started", async i => {
-      if (i !== entry.index)
-        return new None()
-      pool.restart(index)
-      return new None()
-    }, { signal, passive: true, once: true })
-  }
-
   /**
    * Get the entry at index, if still loading, wait for it, if not started, wait for started until signal, and wait for it
    * @param index 
