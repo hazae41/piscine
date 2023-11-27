@@ -5,7 +5,7 @@ import { Future } from "@hazae41/future";
 import { Mutex } from "@hazae41/mutex";
 import { None } from "@hazae41/option";
 import { AbortedError, Plume, SuperEventTarget } from "@hazae41/plume";
-import { Err, Ok, Panic, Result } from "@hazae41/result";
+import { Err, Ok, Result } from "@hazae41/result";
 import { AbortSignals } from "libs/signals/signals.js";
 
 export interface PoolParams {
@@ -307,7 +307,7 @@ export class Pool<T extends MaybeDisposable> {
    * @returns 
    */
   async tryGetOrWait(index: number, signal = AbortSignals.never()): Promise<Result<PoolEntry<T>, Error>> {
-    while (!signal.aborted) {
+    while (true) {
       const current = await this.tryGet(index, signal)
 
       if (current.isOk())
@@ -325,9 +325,6 @@ export class Pool<T extends MaybeDisposable> {
 
       continue
     }
-
-    signal.throwIfAborted()
-    throw new Panic()
   }
 
   /**
@@ -341,27 +338,15 @@ export class Pool<T extends MaybeDisposable> {
     if (promise === undefined)
       return new Err(new EmptySlotError())
 
-    const future = new Future<Result<PoolEntry<T>, Error>>()
+    using abort = AbortedError.tryWait(signal)
 
-    const onAbort = () => {
-      future.resolve(new Err(new AbortedError()))
-    }
+    const future = new Future<Ok<PoolEntry<T>>>()
 
-    const onSettle = () => {
+    promise.finally(() => {
       future.resolve(new Ok(this.#allEntries[index]))
-    }
+    })
 
-    try {
-      signal.addEventListener("abort", onAbort, { passive: true })
-      promise.finally(onSettle).catch(() => { })
-
-      if (signal.aborted)
-        return new Err(new AbortedError())
-
-      return await future.promise
-    } finally {
-      signal.removeEventListener("abort", onAbort)
-    }
+    return await Promise.race([abort, future.promise])
   }
 
   /**
