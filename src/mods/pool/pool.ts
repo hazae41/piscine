@@ -328,7 +328,7 @@ export class Pool<T extends MaybeDisposable> {
    * @param index 
    * @returns 
    */
-  async tryGetSync(index: number): Promise<Result<PoolEntry<T>, EmptySlotError>> {
+  tryGetSync(index: number): Result<PoolEntry<T>, EmptySlotError> {
     const entry = this.#allEntries.at(index)
 
     if (entry === undefined)
