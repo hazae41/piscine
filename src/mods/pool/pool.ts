@@ -4,8 +4,8 @@ import { Disposer } from "@hazae41/cleaner";
 import { Future } from "@hazae41/future";
 import { Mutex } from "@hazae41/mutex";
 import { None } from "@hazae41/option";
-import { Plume, SuperEventTarget } from "@hazae41/plume";
-import { Err, Ok, Result } from "@hazae41/result";
+import { AbortedError, Plume, SuperEventTarget } from "@hazae41/plume";
+import { Err, Ok, Panic, Result } from "@hazae41/result";
 import { AbortSignals } from "libs/signals/signals.js";
 
 export interface PoolParams {
@@ -295,7 +295,7 @@ export class Pool<T extends MaybeDisposable> {
         return new None()
       pool.restart(index)
       return new None()
-    }, { passive: true, once: true })
+    }, { signal, passive: true, once: true })
 
     return new Ok(result.inner)
   }
@@ -307,8 +307,8 @@ export class Pool<T extends MaybeDisposable> {
    * @returns 
    */
   async tryGetOrWait(index: number, signal = AbortSignals.never()): Promise<Result<PoolEntry<T>, Error>> {
-    while (true) {
-      const current = await this.tryGet(index)
+    while (!signal.aborted) {
+      const current = await this.tryGet(index, signal)
 
       if (current.isOk())
         return new Ok(current.inner)
@@ -325,6 +325,9 @@ export class Pool<T extends MaybeDisposable> {
 
       continue
     }
+
+    signal.throwIfAborted()
+    throw new Panic()
   }
 
   /**
@@ -332,16 +335,32 @@ export class Pool<T extends MaybeDisposable> {
    * @param index 
    * @returns 
    */
-  async tryGet(index: number): Promise<Result<PoolEntry<T>, EmptySlotError>> {
-    const entry = this.#allPromises.at(index)
+  async tryGet(index: number, signal = AbortSignals.never()): Promise<Result<PoolEntry<T>, Error>> {
+    const promise = this.#allPromises.at(index)
 
-    if (entry === undefined)
+    if (promise === undefined)
       return new Err(new EmptySlotError())
 
+    const future = new Future<Result<PoolEntry<T>, Error>>()
+
+    const onAbort = (reason?: unknown) => {
+      future.resolve(new Err(new AbortedError()))
+    }
+
+    const onSettle = () => {
+      future.resolve(new Ok(this.#allEntries[index]))
+    }
+
     try {
-      await entry
+      signal.addEventListener("abort", onAbort, { passive: true })
+      promise.finally(onSettle).catch(() => { })
+
+      if (signal.aborted)
+        return new Err(new AbortedError())
+
+      return await future.promise
     } finally {
-      return new Ok(this.#allEntries[index])
+      signal.removeEventListener("abort", onAbort)
     }
   }
 
