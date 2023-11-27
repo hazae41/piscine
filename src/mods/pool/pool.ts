@@ -340,13 +340,11 @@ export class Pool<T extends MaybeDisposable> {
 
     using abort = AbortedError.tryWait(signal)
 
-    const future = new Future<Ok<PoolEntry<T>>>()
+    const wait = promise
+      .catch(() => { })
+      .then(() => new Ok(this.#allEntries[index]))
 
-    promise.finally(() => {
-      future.resolve(new Ok(this.#allEntries[index]))
-    })
-
-    return await Promise.race([abort, future.promise])
+    return await Promise.race([abort, wait])
   }
 
   /**
