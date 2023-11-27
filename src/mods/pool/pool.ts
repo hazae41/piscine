@@ -343,7 +343,7 @@ export class Pool<T extends MaybeDisposable> {
 
     const future = new Future<Result<PoolEntry<T>, Error>>()
 
-    const onAbort = (reason?: unknown) => {
+    const onAbort = () => {
       future.resolve(new Err(new AbortedError()))
     }
 
