@@ -180,22 +180,28 @@ export class Pool<T> {
     }).then(r => r.flatten())
 
     if (result.isOk()) {
-      const entry = new PoolOkEntry(this, index, result.inner)
+      using inner = new Box(result.inner)
+
+      signal.throwIfAborted()
+
+      const entry = new PoolOkEntry(this, index, inner.unwrapOrThrow())
 
       this.#allEntries[index] = entry
       this.#okEntries.add(entry)
 
-      await this.events.emit("created", [entry])
+      this.events.emit("created", [entry]).catch(console.error)
 
       return entry
     }
+
+    signal.throwIfAborted()
 
     const entry = new PoolErrEntry(this, index, result.inner)
 
     this.#allEntries[index] = entry
     this.#errEntries.add(entry)
 
-    await this.events.emit("created", [entry])
+    this.events.emit("created", [entry]).catch(console.error)
 
     throw result.inner
   }
