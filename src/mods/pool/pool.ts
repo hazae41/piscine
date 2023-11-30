@@ -220,7 +220,6 @@ export class Pool<T extends MaybeDisposable> {
     if (entry != null) {
       if (entry.isOk()) {
         entry.inner[Symbol.dispose]()
-        entry.inner.inner[Symbol.dispose]()
         this.#okEntries.delete(entry)
       }
 
