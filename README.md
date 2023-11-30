@@ -27,20 +27,51 @@ Create a pool of 5 WebSockets
 ```tsx
 import { Pool } from "@hazae41/piscine"
 
-const pool = new Pool<WebSocket>(({ pool, index, signal }) => {
-  const socket = new WebSocket(`/api`)
+const pool = new Pool<Disposer<WebSocket>>(async ({ pool, index, signal }) => {
+  const raw = new WebSocket(`/api`)
 
+  /**
+   * Define the socket
+   */
+  using presocket = new Box(new Disposer(raw, () => raw.close()))
+
+  /**
+   * Prepare the entry
+   */
   const onCloseOrError = () => {
-    socket.removeEventListener("error", onCloseOrError)
-    socket.removeEventListener("close", onCloseOrError)
-
-    pool.delete(socket)
+    pool.restart(index)
   }
 
-  socket.addEventListener("error", onCloseOrError)
-  socket.addEventListener("close", onCloseOrError)
+  raw.addEventListener("error", onCloseOrError)
+  raw.addEventListener("close", onCloseOrError)
 
-  return socket
+  /**
+   * Move socket in the entry
+   */
+  const socket = presocket.moveOrThrow()
+
+  const onEntryClean = () => {
+    /** 
+     * Dispose the socket if the entry still owns it
+     */
+    using postsocket = socket
+
+    /**
+     * Clean the entry
+     */
+    raw.removeEventListener("error", onCloseOrError)
+    raw.removeEventListener("close", onCloseOrError)
+  }
+
+  /**
+   * Define the entry
+   */
+  using preentry = new Box(new Disposer(socket, onEntryClean))
+
+  /**
+   * Move the entry in the pool
+   */
+  return new Ok(preentry.unwrapOrThrow())
 }, { capacity: 5 })
 ```
 
