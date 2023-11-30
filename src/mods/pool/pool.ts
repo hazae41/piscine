@@ -1,5 +1,5 @@
 import { Arrays } from "@hazae41/arrays";
-import { Box, MaybeDisposable } from "@hazae41/box";
+import { Box } from "@hazae41/box";
 import { Disposer } from "@hazae41/cleaner";
 import { Future } from "@hazae41/future";
 import { Mutex } from "@hazae41/mutex";
@@ -12,20 +12,20 @@ export interface PoolParams {
   readonly capacity?: number
 }
 
-export interface PoolCreatorParams<T extends MaybeDisposable> {
+export interface PoolCreatorParams<T> {
   readonly pool: Pool<T>
   readonly index: number
   readonly signal: AbortSignal
 }
 
-export type PoolCreator<T extends MaybeDisposable> =
+export type PoolCreator<T> =
   (params: PoolCreatorParams<T>) => Promise<Result<Disposer<Box<T>>, Error>>
 
-export type PoolEntry<T extends MaybeDisposable> =
+export type PoolEntry<T> =
   | PoolOkEntry<T>
   | PoolErrEntry<T>
 
-export class PoolOkEntry<T extends MaybeDisposable> extends Ok<Disposer<Box<T>>> {
+export class PoolOkEntry<T> extends Ok<Disposer<Box<T>>> {
 
   constructor(
     readonly pool: Pool<T>,
@@ -37,7 +37,7 @@ export class PoolOkEntry<T extends MaybeDisposable> extends Ok<Disposer<Box<T>>>
 
 }
 
-export class PoolErrEntry<T extends MaybeDisposable> extends Err<Error> {
+export class PoolErrEntry<T> extends Err<Error> {
 
   constructor(
     readonly pool: Pool<T>,
@@ -49,7 +49,7 @@ export class PoolErrEntry<T extends MaybeDisposable> extends Err<Error> {
 
 }
 
-export type PoolEvents<T extends MaybeDisposable> = {
+export type PoolEvents<T> = {
   started: (index: number) => void
   created: (entry: PoolEntry<T>) => void
   deleted: (entry: PoolEntry<T>) => void
@@ -75,7 +75,7 @@ export class EmptySlotError extends Error {
 
 }
 
-export class Pool<T extends MaybeDisposable> {
+export class Pool<T> {
 
   #capacity: number
 
@@ -419,7 +419,7 @@ export class Pool<T extends MaybeDisposable> {
    * @param pool 
    * @returns 
    */
-  static async tryTakeRandom<T extends MaybeDisposable>(pool: Mutex<Pool<T>>) {
+  static async tryTakeRandom<T>(pool: Mutex<Pool<T>>) {
     return await pool.lock(async pool => {
       return await Result.unthrow<Result<PoolEntry<T>, AggregateError>>(async t => {
         const entry = await pool.tryGetRandom().then(r => r.throw(t))
@@ -444,7 +444,7 @@ export class Pool<T extends MaybeDisposable> {
    * @param pool 
    * @returns 
    */
-  static async tryTakeCryptoRandom<T extends MaybeDisposable>(pool: Mutex<Pool<T>>) {
+  static async tryTakeCryptoRandom<T>(pool: Mutex<Pool<T>>) {
     return await pool.lock(async pool => {
       return await Result.unthrow<Result<PoolEntry<T>, AggregateError>>(async t => {
         const entry = await pool.tryGetCryptoRandom().then(r => r.throw(t))
