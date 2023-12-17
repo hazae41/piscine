@@ -431,7 +431,7 @@ export class Pool<T> {
 
     pool.restart(index)
 
-    return new Ok(entry2)
+    return entry2
   }
 
   /**
@@ -439,7 +439,7 @@ export class Pool<T> {
    * @param pool 
    * @returns 
    */
-  static tryTakeRandomSync<T>(pool: Pool<T>) {
+  static tryTakeRandomSync<T>(pool: Pool<T>): Result<PoolEntry<T>, Error> {
     return Result.runAndDoubleWrapSync(() => this.takeRandomSyncOrThrow(pool))
   }
 
@@ -471,7 +471,7 @@ export class Pool<T> {
    * @param pool 
    * @returns 
    */
-  static async tryTakeRandom<T>(pool: Mutex<Pool<T>>, signal = AbortSignals.never()) {
+  static async tryTakeRandom<T>(pool: Mutex<Pool<T>>, signal = AbortSignals.never()): Promise<Result<PoolEntry<T>, Error>> {
     return await Result.runAndDoubleWrap(() => this.takeRandomOrThrow(pool, signal))
   }
 
@@ -501,7 +501,7 @@ export class Pool<T> {
    * @param pool 
    * @returns 
    */
-  static tryTakeCryptoRandomSync<T>(pool: Pool<T>) {
+  static tryTakeCryptoRandomSync<T>(pool: Pool<T>): Result<PoolEntry<T>, Error> {
     return Result.runAndDoubleWrapSync(() => this.takeCryptoRandomSyncOrThrow(pool))
   }
 
@@ -533,7 +533,7 @@ export class Pool<T> {
    * @param pool 
    * @returns 
    */
-  static async tryTakeCryptoRandom<T>(pool: Mutex<Pool<T>>, signal = AbortSignals.never()) {
+  static async tryTakeCryptoRandom<T>(pool: Mutex<Pool<T>>, signal = AbortSignals.never()): Promise<Result<PoolEntry<T>, Error>> {
     return await Result.runAndDoubleWrap(() => this.takeCryptoRandomOrThrow(pool, signal))
   }
 
