@@ -323,16 +323,15 @@ export class Pool<T> {
       const anies = Promise.any(this.#startedPromises)
       const first = await Promise.race([anies, abort])
 
-      const random = this.tryGetRandomSync()
-
-      if (random.isOk())
-        return random.get()
-
-      /**
-       * The element has been deleted already?
-       */
-      console.error(`Could not get random element`, { first })
-      continue
+      try {
+        return this.getRandomSyncOrThrow()
+      } catch (e: unknown) {
+        /**
+         * The element has been deleted already?
+         */
+        console.error(`Could not get random element`, { first })
+        continue
+      }
     }
   }
 
@@ -348,14 +347,20 @@ export class Pool<T> {
    * Get a random element from the pool using Math's PRNG, throws if none available
    * @returns 
    */
-  tryGetRandomSync(): Result<PoolEntry<T>, EmptyPoolError> {
+  getRandomSyncOrThrow(): PoolEntry<T> {
     if (this.#okEntries.size === 0)
-      return new Err(new EmptyPoolError())
+      throw new EmptyPoolError()
 
     const entries = [...this.#okEntries]
-    const entry = Arrays.random(entries)!
+    return Arrays.random(entries)!
+  }
 
-    return new Ok(entry)
+  /**
+   * Get a random element from the pool using Math's PRNG, throws if none available
+   * @returns 
+   */
+  tryGetRandomSync(): Result<PoolEntry<T>, Error> {
+    return Result.runAndDoubleWrapSync(() => this.getRandomSyncOrThrow())
   }
 
   /**
@@ -368,16 +373,15 @@ export class Pool<T> {
       const anies = Promise.any(this.#startedPromises)
       const first = await Promise.race([anies, abort])
 
-      const random = this.tryGetCryptoRandomSync()
-
-      if (random.isOk())
-        return random.get()
-
-      /**
-       * The element has been deleted already?
-       */
-      console.error(`Could not get random element`, { first })
-      continue
+      try {
+        return this.getCryptoRandomSyncOrThrow()
+      } catch (e: unknown) {
+        /**
+         * The element has been deleted already?
+         */
+        console.error(`Could not get random element`, { first })
+        continue
+      }
     }
   }
 
@@ -393,14 +397,73 @@ export class Pool<T> {
    * Get a random element from the pool using WebCrypto's CSPRNG
    * @returns 
    */
-  tryGetCryptoRandomSync(): Result<PoolEntry<T>, EmptyPoolError> {
+  getCryptoRandomSyncOrThrow(): PoolEntry<T> {
     if (this.#okEntries.size === 0)
-      return new Err(new EmptyPoolError())
+      throw new EmptyPoolError()
 
     const entries = [...this.#okEntries]
-    const entry = Arrays.cryptoRandom(entries)!
+    return Arrays.cryptoRandom(entries)!
+  }
 
-    return new Ok(entry)
+  /**
+   * Get a random element from the pool using WebCrypto's CSPRNG
+   * @returns 
+   */
+  tryGetCryptoRandomSync(): Result<PoolEntry<T>, Error> {
+    return Result.runAndDoubleWrapSync(() => this.getCryptoRandomSyncOrThrow())
+  }
+
+  /**
+   * Take a random element from the pool using Math's PRNG
+   * @param pool 
+   * @returns 
+   */
+  static takeRandomSyncOrThrow<T>(pool: Pool<T>) {
+    const entry = pool.getRandomSyncOrThrow()
+
+    if (entry.isErr())
+      return entry
+
+    const { index, value } = entry
+
+    const value2 = value.mapSync(x => x.moveOrThrow())
+    const entry2 = new PoolOkEntry(pool, index, value2)
+
+    pool.restart(index)
+
+    return new Ok(entry2)
+  }
+
+  /**
+   * Take a random element from the pool using Math's PRNG
+   * @param pool 
+   * @returns 
+   */
+  static tryTakeRandomSync<T>(pool: Pool<T>) {
+    return Result.runAndDoubleWrapSync(() => this.takeRandomSyncOrThrow(pool))
+  }
+
+  /**
+   * Take a random element from the pool using Math's PRNG
+   * @param pool 
+   * @returns 
+   */
+  static async takeRandomOrThrow<T>(pool: Mutex<Pool<T>>, signal = AbortSignals.never()) {
+    return await pool.lock(async pool => {
+      const entry = await pool.getRandomOrThrow(signal)
+
+      if (entry.isErr())
+        return entry
+
+      const { index, value } = entry
+
+      const value2 = value.mapSync(x => x.moveOrThrow())
+      const entry2 = new PoolOkEntry(pool, index, value2)
+
+      pool.restart(index)
+
+      return entry2
+    })
   }
 
   /**
@@ -409,22 +472,59 @@ export class Pool<T> {
    * @returns 
    */
   static async tryTakeRandom<T>(pool: Mutex<Pool<T>>, signal = AbortSignals.never()) {
+    return await Result.runAndDoubleWrap(() => this.takeRandomOrThrow(pool, signal))
+  }
+
+  /**
+   * Take a random element from the pool using WebCrypto's CSPRNG
+   * @param pool 
+   * @returns 
+   */
+  static takeCryptoRandomSyncOrThrow<T>(pool: Pool<T>) {
+    const entry = pool.getCryptoRandomSyncOrThrow()
+
+    if (entry.isErr())
+      return entry
+
+    const { index, value } = entry
+
+    const value2 = value.mapSync(x => x.moveOrThrow())
+    const entry2 = new PoolOkEntry(pool, index, value2)
+
+    pool.restart(index)
+
+    return entry2
+  }
+
+  /**
+   * Take a random element from the pool using WebCrypto's CSPRNG
+   * @param pool 
+   * @returns 
+   */
+  static tryTakeCryptoRandomSync<T>(pool: Pool<T>) {
+    return Result.runAndDoubleWrapSync(() => this.takeCryptoRandomSyncOrThrow(pool))
+  }
+
+  /**
+   * Take a random element from the pool using WebCrypto's CSPRNG
+   * @param pool 
+   * @returns 
+   */
+  static async takeCryptoRandomOrThrow<T>(pool: Mutex<Pool<T>>, signal = AbortSignals.never()) {
     return await pool.lock(async pool => {
-      return await Result.unthrow<Result<PoolEntry<T>, Error>>(async t => {
-        const entry = await pool.tryGetRandom(signal).then(r => r.throw(t))
+      const entry = await pool.getCryptoRandomOrThrow(signal)
 
-        if (entry.isErr())
-          return new Ok(entry)
+      if (entry.isErr())
+        return entry
 
-        const { index, value } = entry
+      const { index, value } = entry
 
-        const value2 = value.mapSync(x => x.moveOrThrow())
-        const entry2 = new PoolOkEntry(pool, index, value2)
+      const value2 = value.mapSync(x => x.moveOrThrow())
+      const entry2 = new PoolOkEntry(pool, index, value2)
 
-        pool.restart(index)
+      pool.restart(index)
 
-        return new Ok(entry2)
-      })
+      return entry2
     })
   }
 
@@ -434,23 +534,7 @@ export class Pool<T> {
    * @returns 
    */
   static async tryTakeCryptoRandom<T>(pool: Mutex<Pool<T>>, signal = AbortSignals.never()) {
-    return await pool.lock(async pool => {
-      return await Result.unthrow<Result<PoolEntry<T>, Error>>(async t => {
-        const entry = await pool.tryGetCryptoRandom(signal).then(r => r.throw(t))
-
-        if (entry.isErr())
-          return new Ok(entry)
-
-        const { index, value } = entry
-
-        const value2 = value.mapSync(x => x.moveOrThrow())
-        const entry2 = new PoolOkEntry(pool, index, value2)
-
-        pool.restart(index)
-
-        return new Ok(entry2)
-      })
-    })
+    return await Result.runAndDoubleWrap(() => this.takeCryptoRandomOrThrow(pool, signal))
   }
 
 }
