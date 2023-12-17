@@ -1,10 +1,8 @@
 import { Arrays } from "@hazae41/arrays";
 import { Box } from "@hazae41/box";
 import { Disposer } from "@hazae41/cleaner";
-import { Future } from "@hazae41/future";
 import { Mutex } from "@hazae41/mutex";
-import { None } from "@hazae41/option";
-import { AbortedError, Plume, SuperEventTarget } from "@hazae41/plume";
+import { AbortedError, SuperEventTarget } from "@hazae41/plume";
 import { Err, Ok, Result } from "@hazae41/result";
 import { AbortSignals } from "libs/signals/signals.js";
 
@@ -282,33 +280,6 @@ export class Pool<T> {
   }
 
   /**
-   * Get the entry at index, if still loading, wait for it, if not started, wait for started until signal, and wait for it
-   * @param index 
-   * @param signal 
-   * @returns 
-   */
-  async tryGetOrWait(index: number, signal = AbortSignals.never()): Promise<Result<PoolEntry<T>, Error>> {
-    while (true) {
-      const current = await this.tryGet(index, signal)
-
-      if (current.isOk())
-        return new Ok(current.inner)
-
-      const aborted = await Plume.tryWaitOrSignal(this.events, "started", (future: Future<Ok<void>>, i) => {
-        if (i !== index)
-          return new None()
-        future.resolve(Ok.void())
-        return new None()
-      }, signal)
-
-      if (aborted.isErr())
-        return aborted
-
-      continue
-    }
-  }
-
-  /**
    * Get the element at index, if still loading, wait for it, err if not started
    * @param index 
    * @returns 
@@ -346,25 +317,31 @@ export class Pool<T> {
    * Wait for any element to be created, then get a random one using Math's PRNG
    * @returns 
    */
-  async tryGetRandom(): Promise<Result<PoolEntry<T>, AggregateError>> {
-    return await Result.unthrow(async t => {
-      while (true) {
-        const first = await Result
-          .runAndWrap(() => Promise.any(this.#startedPromises))
-          .then(r => r.throw(t as any))
+  async getRandomOrThrow(signal = AbortSignals.never()): Promise<PoolEntry<T>> {
+    while (true) {
+      using abort = AbortedError.waitOrThrow(signal)
+      const anies = Promise.any(this.#startedPromises)
+      const first = await Promise.race([anies, abort])
 
-        const random = this.tryGetRandomSync()
+      const random = this.tryGetRandomSync()
 
-        if (random.isOk())
-          return random
+      if (random.isOk())
+        return random.get()
 
-        /**
-         * The element has been deleted already?
-         */
-        console.error(`Could not get random element`, { first })
-        continue
-      }
-    })
+      /**
+       * The element has been deleted already?
+       */
+      console.error(`Could not get random element`, { first })
+      continue
+    }
+  }
+
+  /**
+   * Wait for any element to be created, then get a random one using Math's PRNG
+   * @returns 
+   */
+  async tryGetRandom(signal = AbortSignals.never()): Promise<Result<PoolEntry<T>, Error>> {
+    return await Result.runAndDoubleWrap(() => this.getRandomOrThrow(signal))
   }
 
   /**
@@ -385,25 +362,31 @@ export class Pool<T> {
    * Wait for any element to be created, then get a random one using WebCrypto's CSPRNG
    * @returns 
    */
-  async tryGetCryptoRandom(): Promise<Result<PoolEntry<T>, AggregateError>> {
-    return await Result.unthrow(async t => {
-      while (true) {
-        const first = await Result
-          .runAndWrap(() => Promise.any(this.#startedPromises))
-          .then(r => r.throw(t as any))
+  async getCryptoRandomOrThrow(signal = AbortSignals.never()): Promise<PoolEntry<T>> {
+    while (true) {
+      using abort = AbortedError.waitOrThrow(signal)
+      const anies = Promise.any(this.#startedPromises)
+      const first = await Promise.race([anies, abort])
 
-        const random = this.tryGetCryptoRandomSync()
+      const random = this.tryGetCryptoRandomSync()
 
-        if (random.isOk())
-          return random
+      if (random.isOk())
+        return random.get()
 
-        /**
-         * The element has been deleted already?
-         */
-        console.error(`Could not get random element`, { first })
-        continue
-      }
-    })
+      /**
+       * The element has been deleted already?
+       */
+      console.error(`Could not get random element`, { first })
+      continue
+    }
+  }
+
+  /**
+   * Wait for any element to be created, then get a random one using WebCrypto's CSPRNG
+   * @returns 
+   */
+  async tryGetCryptoRandom(signal = AbortSignals.never()): Promise<Result<PoolEntry<T>, Error>> {
+    return await Result.runAndDoubleWrap(() => this.getCryptoRandomOrThrow(signal))
   }
 
   /**
@@ -425,10 +408,10 @@ export class Pool<T> {
    * @param pool 
    * @returns 
    */
-  static async tryTakeRandom<T>(pool: Mutex<Pool<T>>) {
+  static async tryTakeRandom<T>(pool: Mutex<Pool<T>>, signal = AbortSignals.never()) {
     return await pool.lock(async pool => {
-      return await Result.unthrow<Result<PoolEntry<T>, AggregateError>>(async t => {
-        const entry = await pool.tryGetRandom().then(r => r.throw(t))
+      return await Result.unthrow<Result<PoolEntry<T>, Error>>(async t => {
+        const entry = await pool.tryGetRandom(signal).then(r => r.throw(t))
 
         if (entry.isErr())
           return new Ok(entry)
@@ -450,10 +433,10 @@ export class Pool<T> {
    * @param pool 
    * @returns 
    */
-  static async tryTakeCryptoRandom<T>(pool: Mutex<Pool<T>>) {
+  static async tryTakeCryptoRandom<T>(pool: Mutex<Pool<T>>, signal = AbortSignals.never()) {
     return await pool.lock(async pool => {
-      return await Result.unthrow<Result<PoolEntry<T>, AggregateError>>(async t => {
-        const entry = await pool.tryGetCryptoRandom().then(r => r.throw(t))
+      return await Result.unthrow<Result<PoolEntry<T>, Error>>(async t => {
+        const entry = await pool.tryGetCryptoRandom(signal).then(r => r.throw(t))
 
         if (entry.isErr())
           return new Ok(entry)
