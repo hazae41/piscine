@@ -109,7 +109,7 @@ export class Retry<T> {
 
 }
 
-export class Skip<T>  {
+export class Skip<T> {
 
   constructor(
     readonly inner: T
@@ -154,7 +154,7 @@ export async function tryLoop<LoopOutput, LoopError extends Looped.Infer<LoopErr
     if (result.isOk())
       return result
 
-    const looped = result.get()
+    const looped = result.getErr()
 
     if (looped.isSkip()) {
       errors.push(looped)
