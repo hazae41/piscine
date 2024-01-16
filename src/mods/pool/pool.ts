@@ -279,24 +279,39 @@ export class Pool<T> {
     return this.#capacity
   }
 
+  async getOrThrow(index: number, signal = AbortSignals.never()): Promise<PoolEntry<T>> {
+    const promise = this.#allPromises.at(index)
+
+    if (promise === undefined)
+      throw new EmptySlotError()
+
+    using abort = AbortedError.waitOrThrow(signal)
+
+    return await Promise.race([abort, promise])
+  }
+
   /**
    * Get the element at index, if still loading, wait for it, err if not started
    * @param index 
    * @returns 
    */
   async tryGet(index: number, signal = AbortSignals.never()): Promise<Result<PoolEntry<T>, Error>> {
-    const promise = this.#allPromises.at(index)
+    return await Result.runAndDoubleWrap(() => this.getOrThrow(index, signal))
+  }
 
-    if (promise === undefined)
-      return new Err(new EmptySlotError())
+  /**
+   * Get the element at index, throw if empty
+   * @param index 
+   * @returns the element at index
+   * @throws if empty
+   */
+  getSyncOrThrow(index: number): PoolEntry<T> {
+    const entry = this.#allEntries.at(index)
 
-    using abort = AbortedError.tryWait(signal)
+    if (entry === undefined)
+      throw new EmptySlotError()
 
-    const wait = promise
-      .catch(() => { })
-      .then(() => new Ok(this.#allEntries[index]))
-
-    return await Promise.race([abort, wait])
+    return entry
   }
 
   /**
@@ -304,13 +319,8 @@ export class Pool<T> {
    * @param index 
    * @returns 
    */
-  tryGetSync(index: number): Result<PoolEntry<T>, EmptySlotError> {
-    const entry = this.#allEntries.at(index)
-
-    if (entry === undefined)
-      return new Err(new EmptySlotError())
-
-    return new Ok(entry)
+  tryGetSync(index: number): Result<PoolEntry<T>, Error> {
+    return Result.runAndDoubleWrapSync(() => this.getSyncOrThrow(index))
   }
 
   /**
@@ -320,17 +330,15 @@ export class Pool<T> {
   async getRandomOrThrow(signal = AbortSignals.never()): Promise<PoolEntry<T>> {
     while (true) {
       using abort = AbortedError.waitOrThrow(signal)
-      const anies = Promise.any(this.#startedPromises)
-      const first = await Promise.race([anies, abort])
+      const first = Promise.any(this.#startedPromises)
+      await Promise.race([first, abort])
 
       try {
         return this.getRandomSyncOrThrow()
       } catch (e: unknown) {
         /**
-         * The element has been deleted already?
+         * The element has been deleted already
          */
-        console.error(`Could not get random element`, { first })
-        continue
       }
     }
   }
@@ -370,17 +378,15 @@ export class Pool<T> {
   async getCryptoRandomOrThrow(signal = AbortSignals.never()): Promise<PoolEntry<T>> {
     while (true) {
       using abort = AbortedError.waitOrThrow(signal)
-      const anies = Promise.any(this.#startedPromises)
-      const first = await Promise.race([anies, abort])
+      const first = Promise.any(this.#startedPromises)
+      await Promise.race([first, abort])
 
       try {
         return this.getCryptoRandomSyncOrThrow()
       } catch (e: unknown) {
         /**
-         * The element has been deleted already?
+         * The element has been deleted already
          */
-        console.error(`Could not get random element`, { first })
-        continue
       }
     }
   }
