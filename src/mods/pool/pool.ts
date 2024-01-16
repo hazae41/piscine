@@ -337,7 +337,7 @@ export class Pool<T> {
         return this.getRandomSyncOrThrow()
       } catch (e: unknown) {
         /**
-         * The element has been deleted already
+         * The element has been deleted already?
          */
       }
     }
@@ -385,7 +385,7 @@ export class Pool<T> {
         return this.getCryptoRandomSyncOrThrow()
       } catch (e: unknown) {
         /**
-         * The element has been deleted already
+         * The element has been deleted already?
          */
       }
     }
