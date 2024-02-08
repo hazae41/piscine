@@ -4,7 +4,6 @@ import { Box } from "@hazae41/box"
 import { Disposer } from "@hazae41/disposer"
 import { Mutex } from "@hazae41/mutex"
 import { test } from "@hazae41/phobos"
-import { Ok } from "@hazae41/result"
 import { Pool } from "./pool.js"
 
 test("pool", async ({ test }) => {
@@ -25,7 +24,7 @@ test("pool", async ({ test }) => {
       clearTimeout(i)
     }
 
-    return new Ok(new Disposer(new Box(crypto.randomUUID() as string), onEntryClean))
+    return new Disposer(new Box(crypto.randomUUID() as string), onEntryClean)
   }, { capacity: 1 })
 
   const mutex = new Mutex(pool)
