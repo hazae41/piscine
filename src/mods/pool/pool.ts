@@ -287,7 +287,7 @@ export class Pool<T> {
 
     using abort = AbortedError.waitOrThrow(signal)
 
-    return await Promise.race([abort, promise])
+    return await Promise.race([abort.get(), promise])
   }
 
   /**
