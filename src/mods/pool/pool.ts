@@ -286,7 +286,6 @@ export class Pool<T> {
       throw new EmptySlotError()
 
     using abort = AbortedError.waitOrThrow(signal)
-
     return await Promise.race([abort.get(), promise])
   }
 
@@ -331,7 +330,7 @@ export class Pool<T> {
     while (true) {
       using abort = AbortedError.waitOrThrow(signal)
       const first = Promise.any(this.#startedPromises)
-      await Promise.race([first, abort])
+      await Promise.race([first, abort.get()])
 
       try {
         return this.getRandomSyncOrThrow()
@@ -379,7 +378,7 @@ export class Pool<T> {
     while (true) {
       using abort = AbortedError.waitOrThrow(signal)
       const first = Promise.any(this.#startedPromises)
-      await Promise.race([first, abort])
+      await Promise.race([first, abort.get()])
 
       try {
         return this.getCryptoRandomSyncOrThrow()
