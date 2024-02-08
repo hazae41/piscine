@@ -432,7 +432,7 @@ export class Pool<T> {
 
     const { index, value } = entry
 
-    const value2 = value.mapSync(x => x.moveOrThrow())
+    const value2 = new Disposer(value.inner.moveOrThrow(), value.dispose)
     const entry2 = new PoolOkEntry(pool, index, value2)
 
     pool.restart(index)
@@ -463,7 +463,7 @@ export class Pool<T> {
 
       const { index, value } = entry
 
-      const value2 = value.mapSync(x => x.moveOrThrow())
+      const value2 = new Disposer(value.inner.moveOrThrow(), value.dispose)
       const entry2 = new PoolOkEntry(pool, index, value2)
 
       pool.restart(index)
@@ -494,7 +494,7 @@ export class Pool<T> {
 
     const { index, value } = entry
 
-    const value2 = value.mapSync(x => x.moveOrThrow())
+    const value2 = new Disposer(value.inner.moveOrThrow(), value.dispose)
     const entry2 = new PoolOkEntry(pool, index, value2)
 
     pool.restart(index)
@@ -525,7 +525,7 @@ export class Pool<T> {
 
       const { index, value } = entry
 
-      const value2 = value.mapSync(x => x.moveOrThrow())
+      const value2 = new Disposer(value.inner.moveOrThrow(), value.dispose)
       const entry2 = new PoolOkEntry(pool, index, value2)
 
       pool.restart(index)
