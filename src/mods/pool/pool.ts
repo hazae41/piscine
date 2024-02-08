@@ -1,6 +1,6 @@
 import { Arrays } from "@hazae41/arrays";
 import { Box } from "@hazae41/box";
-import { Disposer } from "@hazae41/cleaner";
+import { Disposer } from "@hazae41/disposer";
 import { Mutex } from "@hazae41/mutex";
 import { AbortedError, SuperEventTarget } from "@hazae41/plume";
 import { Err, Ok, Result } from "@hazae41/result";
