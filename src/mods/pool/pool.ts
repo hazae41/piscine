@@ -17,7 +17,7 @@ export interface PoolCreatorParams<T> {
 }
 
 export type PoolCreator<T> =
-  (params: PoolCreatorParams<T>) => Promise<Result<Disposer<Box<T>>, Error>>
+  (params: PoolCreatorParams<T>) => Promise<Disposer<Box<T>>>
 
 export type PoolEntry<T> =
   | PoolOkEntry<T>
@@ -173,16 +173,14 @@ export class Pool<T> {
     this.#allAborters[index] = aborter
     const { signal } = aborter
 
-    const result = await Result.runAndDoubleWrap(async () => {
-      return await this.creator({ pool: this, index, signal })
-    }).then(r => r.flatten())
+    const result = await Result.runAndDoubleWrap(() => this.creator({ pool: this, index, signal }))
 
     if (result.isOk()) {
-      using inner = new Box(result.inner)
+      using box = new Box(result.get())
 
       signal.throwIfAborted()
 
-      const entry = new PoolOkEntry(this, index, inner.unwrapOrThrow())
+      const entry = new PoolOkEntry(this, index, box.unwrapOrThrow())
 
       this.#allEntries[index] = entry
       this.#okEntries.add(entry)
@@ -194,14 +192,14 @@ export class Pool<T> {
 
     signal.throwIfAborted()
 
-    const entry = new PoolErrEntry(this, index, result.inner)
+    const entry = new PoolErrEntry(this, index, result.getErr())
 
     this.#allEntries[index] = entry
     this.#errEntries.add(entry)
 
     this.events.emit("created", [entry]).catch(console.error)
 
-    throw result.inner
+    throw result.getErr()
   }
 
   #delete(index: number) {
