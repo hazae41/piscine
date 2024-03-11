@@ -2,7 +2,7 @@ import { Arrays } from "@hazae41/arrays";
 import { Box } from "@hazae41/box";
 import { Disposer } from "@hazae41/disposer";
 import { Mutex } from "@hazae41/mutex";
-import { AbortedError, SuperEventTarget } from "@hazae41/plume";
+import { Plume, SuperEventTarget } from "@hazae41/plume";
 import { Err, Ok, Result } from "@hazae41/result";
 import { AbortSignals } from "libs/signals/signals.js";
 
@@ -165,7 +165,7 @@ export class Pool<T> {
     this.#allPromises[index] = promise
     this.#startedPromises.add(promise)
 
-    this.events.emit("started", [index]).catch(console.error)
+    this.events.emit("started", index).catch(console.error)
   }
 
   async #createOrThrow(index: number): Promise<PoolOkEntry<T>> {
@@ -185,7 +185,7 @@ export class Pool<T> {
       this.#allEntries[index] = entry
       this.#okEntries.add(entry)
 
-      this.events.emit("created", [entry]).catch(console.error)
+      this.events.emit("created", entry).catch(console.error)
 
       return entry
     }
@@ -197,7 +197,7 @@ export class Pool<T> {
     this.#allEntries[index] = entry
     this.#errEntries.add(entry)
 
-    this.events.emit("created", [entry]).catch(console.error)
+    this.events.emit("created", entry).catch(console.error)
 
     throw result.getErr()
   }
@@ -231,7 +231,7 @@ export class Pool<T> {
 
       delete this.#allEntries[index]
 
-      this.events.emit("deleted", [entry]).catch(console.error)
+      this.events.emit("deleted", entry).catch(console.error)
 
       return entry
     }
@@ -283,7 +283,7 @@ export class Pool<T> {
     if (promise === undefined)
       throw new EmptySlotError()
 
-    using abort = AbortedError.waitOrThrow(signal)
+    using abort = Plume.AbortSignals.waitOrThrow(signal)
     return await Promise.race([abort.get(), promise])
   }
 
@@ -326,7 +326,7 @@ export class Pool<T> {
    */
   async getRandomOrThrow(signal = AbortSignals.never()): Promise<PoolEntry<T>> {
     while (true) {
-      using abort = AbortedError.waitOrThrow(signal)
+      using abort = Plume.AbortSignals.waitOrThrow(signal)
       const first = Promise.any(this.#startedPromises)
       await Promise.race([first, abort.get()])
 
@@ -374,7 +374,7 @@ export class Pool<T> {
    */
   async getCryptoRandomOrThrow(signal = AbortSignals.never()): Promise<PoolEntry<T>> {
     while (true) {
-      using abort = AbortedError.waitOrThrow(signal)
+      using abort = Plume.AbortSignals.waitOrThrow(signal)
       const first = Promise.any(this.#startedPromises)
       await Promise.race([first, abort.get()])
 
