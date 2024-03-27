@@ -2,9 +2,9 @@ import { Arrays } from "@hazae41/arrays";
 import { Box } from "@hazae41/box";
 import { Disposer } from "@hazae41/disposer";
 import { Mutex } from "@hazae41/mutex";
-import { Plume, SuperEventTarget } from "@hazae41/plume";
+import { SuperEventTarget } from "@hazae41/plume";
 import { Err, Ok, Result } from "@hazae41/result";
-import { AbortSignals } from "libs/signals/signals.js";
+import { Signals } from "@hazae41/signals";
 
 export interface PoolParams {
   readonly capacity?: number
@@ -277,13 +277,14 @@ export class Pool<T> {
     return this.#capacity
   }
 
-  async getOrThrow(index: number, signal = AbortSignals.never()): Promise<PoolEntry<T>> {
+  async getOrThrow(index: number, signal = Signals.never()): Promise<PoolEntry<T>> {
     const promise = this.#allPromises.at(index)
 
     if (promise === undefined)
       throw new EmptySlotError()
 
-    using abort = Plume.AbortSignals.waitOrThrow(signal)
+    using abort = Signals.rejectOnAbort(signal)
+
     return await Promise.race([abort.get(), promise])
   }
 
@@ -292,7 +293,7 @@ export class Pool<T> {
    * @param index 
    * @returns 
    */
-  async tryGet(index: number, signal = AbortSignals.never()): Promise<Result<PoolEntry<T>, Error>> {
+  async tryGet(index: number, signal?: AbortSignal): Promise<Result<PoolEntry<T>, Error>> {
     return await Result.runAndDoubleWrap(() => this.getOrThrow(index, signal))
   }
 
@@ -324,10 +325,11 @@ export class Pool<T> {
    * Wait for any element to be created, then get a random one using Math's PRNG
    * @returns 
    */
-  async getRandomOrThrow(signal = AbortSignals.never()): Promise<PoolEntry<T>> {
+  async getRandomOrThrow(signal = Signals.never()): Promise<PoolEntry<T>> {
     while (true) {
-      using abort = Plume.AbortSignals.waitOrThrow(signal)
+      using abort = Signals.rejectOnAbort(signal)
       const first = Promise.any(this.#startedPromises)
+
       await Promise.race([first, abort.get()])
 
       try {
@@ -344,7 +346,7 @@ export class Pool<T> {
    * Wait for any element to be created, then get a random one using Math's PRNG
    * @returns 
    */
-  async tryGetRandom(signal = AbortSignals.never()): Promise<Result<PoolEntry<T>, Error>> {
+  async tryGetRandom(signal?: AbortSignal): Promise<Result<PoolEntry<T>, Error>> {
     return await Result.runAndDoubleWrap(() => this.getRandomOrThrow(signal))
   }
 
@@ -372,10 +374,11 @@ export class Pool<T> {
    * Wait for any element to be created, then get a random one using WebCrypto's CSPRNG
    * @returns 
    */
-  async getCryptoRandomOrThrow(signal = AbortSignals.never()): Promise<PoolEntry<T>> {
+  async getCryptoRandomOrThrow(signal = Signals.never()): Promise<PoolEntry<T>> {
     while (true) {
-      using abort = Plume.AbortSignals.waitOrThrow(signal)
+      using abort = Signals.rejectOnAbort(signal)
       const first = Promise.any(this.#startedPromises)
+
       await Promise.race([first, abort.get()])
 
       try {
@@ -392,7 +395,7 @@ export class Pool<T> {
    * Wait for any element to be created, then get a random one using WebCrypto's CSPRNG
    * @returns 
    */
-  async tryGetCryptoRandom(signal = AbortSignals.never()): Promise<Result<PoolEntry<T>, Error>> {
+  async tryGetCryptoRandom(signal?: AbortSignal): Promise<Result<PoolEntry<T>, Error>> {
     return await Result.runAndDoubleWrap(() => this.getCryptoRandomOrThrow(signal))
   }
 
@@ -451,7 +454,7 @@ export class Pool<T> {
    * @param pool 
    * @returns 
    */
-  static async takeRandomOrThrow<T>(pool: Mutex<Pool<T>>, signal = AbortSignals.never()) {
+  static async takeRandomOrThrow<T>(pool: Mutex<Pool<T>>, signal = Signals.never()) {
     return await pool.lock(async pool => {
       const entry = await pool.getRandomOrThrow(signal)
 
@@ -474,7 +477,7 @@ export class Pool<T> {
    * @param pool 
    * @returns 
    */
-  static async tryTakeRandom<T>(pool: Mutex<Pool<T>>, signal = AbortSignals.never()): Promise<Result<PoolEntry<T>, Error>> {
+  static async tryTakeRandom<T>(pool: Mutex<Pool<T>>, signal?: AbortSignal): Promise<Result<PoolEntry<T>, Error>> {
     return await Result.runAndDoubleWrap(() => this.takeRandomOrThrow(pool, signal))
   }
 
@@ -513,7 +516,7 @@ export class Pool<T> {
    * @param pool 
    * @returns 
    */
-  static async takeCryptoRandomOrThrow<T>(pool: Mutex<Pool<T>>, signal = AbortSignals.never()) {
+  static async takeCryptoRandomOrThrow<T>(pool: Mutex<Pool<T>>, signal = Signals.never()) {
     return await pool.lock(async pool => {
       const entry = await pool.getCryptoRandomOrThrow(signal)
 
@@ -536,7 +539,7 @@ export class Pool<T> {
    * @param pool 
    * @returns 
    */
-  static async tryTakeCryptoRandom<T>(pool: Mutex<Pool<T>>, signal = AbortSignals.never()): Promise<Result<PoolEntry<T>, Error>> {
+  static async tryTakeCryptoRandom<T>(pool: Mutex<Pool<T>>, signal?: AbortSignal): Promise<Result<PoolEntry<T>, Error>> {
     return await Result.runAndDoubleWrap(() => this.takeCryptoRandomOrThrow(pool, signal))
   }
 

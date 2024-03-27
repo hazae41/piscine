@@ -27,10 +27,11 @@
     "@hazae41/box": "^1.0.14",
     "@hazae41/disposer": "^2.0.11",
     "@hazae41/future": "^1.0.3",
-    "@hazae41/mutex": "^1.2.12",
+    "@hazae41/mutex": "^2.0.0",
     "@hazae41/option": "^1.0.27",
-    "@hazae41/plume": "^2.4.1",
-    "@hazae41/result": "^1.2.0"
+    "@hazae41/plume": "^2.4.2",
+    "@hazae41/result": "^1.2.0",
+    "@hazae41/signals": "^1.0.1"
   },
   "devDependencies": {
     "@hazae41/deimos": "^1.0.6",
@@ -38,12 +39,12 @@
     "@hazae41/rimraf": "^1.0.1",
     "@hazae41/symbol-dispose-polyfill": "^1.0.2",
     "@rollup/plugin-typescript": "^11.1.6",
-    "@types/node": "^20.11.25",
-    "rollup": "^4.12.1",
+    "@types/node": "^20.11.30",
+    "rollup": "^4.13.1",
     "rollup-plugin-dts": "^6.1.0",
-    "rollup-plugin-node-externals": "^7.0.1",
+    "rollup-plugin-node-externals": "^7.1.1",
     "tslib": "^2.6.2",
-    "typescript": "^5.4.2"
+    "typescript": "^5.4.3"
   },
   "exports": {
     ".": {
