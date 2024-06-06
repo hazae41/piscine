@@ -37,30 +37,9 @@ export namespace Looped {
 
 }
 
-export namespace Cancel {
-
-  export type Infer<T> = Cancel<Inner<T>>
-
-  export type Inner<T> = T extends Cancel<infer Inner> ? Inner : never
-
-}
-
-export namespace Skip {
-
-  export type Infer<T> = Skip<Inner<T>>
-
-  export type Inner<T> = T extends Skip<infer Inner> ? Inner : never
-
-}
-
-export namespace Retry {
-
-  export type Infer<T> = Retry<Inner<T>>
-
-  export type Inner<T> = T extends Retry<infer Inner> ? Inner : never
-
-}
-
+/**
+ * @deprecated
+ */
 export class Cancel<T> {
 
   constructor(
@@ -82,6 +61,14 @@ export class Cancel<T> {
   isSkip(): false {
     return false
   }
+
+}
+
+export namespace Cancel {
+
+  export type Infer<T> = Cancel<Inner<T>>
+
+  export type Inner<T> = T extends Cancel<infer Inner> ? Inner : never
 
 }
 
@@ -109,6 +96,30 @@ export class Retry<T> {
 
 }
 
+export namespace Retry {
+
+  export type Infer<T> = Retry<Inner<T>>
+
+  export type Inner<T> = T extends Retry<infer Inner> ? Inner : never
+
+  export function runSync<T>(f: () => T) {
+    try {
+      return f()
+    } catch (error) {
+      throw new Retry(error)
+    }
+  }
+
+  export async function run<T>(f: () => Promise<T>) {
+    try {
+      return await f()
+    } catch (error) {
+      throw new Retry(error)
+    }
+  }
+
+}
+
 export class Skip<T> {
 
   constructor(
@@ -129,6 +140,30 @@ export class Skip<T> {
 
   isSkip(): this is Skip<T> {
     return true
+  }
+
+}
+
+export namespace Skip {
+
+  export type Infer<T> = Skip<Inner<T>>
+
+  export type Inner<T> = T extends Skip<infer Inner> ? Inner : never
+
+  export function runSync<T>(f: () => T) {
+    try {
+      return f()
+    } catch (error) {
+      throw new Skip(error)
+    }
+  }
+
+  export async function run<T>(f: () => Promise<T>) {
+    try {
+      return await f()
+    } catch (error) {
+      throw new Skip(error)
+    }
   }
 
 }
