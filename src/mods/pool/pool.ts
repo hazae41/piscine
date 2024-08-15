@@ -277,7 +277,7 @@ export class Pool<T> {
     return this.#capacity
   }
 
-  async getOrThrow(index: number, signal = Signals.never()): Promise<PoolEntry<T>> {
+  async getOrThrow(index: number, signal = Signals.never()): Promise<PoolOkEntry<T>> {
     const promise = this.#allPromises.at(index)
 
     if (promise === undefined)
