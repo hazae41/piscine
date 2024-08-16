@@ -30,7 +30,7 @@
     "@hazae41/mutex": "^2.0.0",
     "@hazae41/option": "^1.0.27",
     "@hazae41/plume": "^2.4.2",
-    "@hazae41/result": "^1.2.0",
+    "@hazae41/result": "^1.2.3",
     "@hazae41/signals": "^1.0.1"
   },
   "devDependencies": {
