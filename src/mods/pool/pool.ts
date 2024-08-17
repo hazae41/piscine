@@ -64,7 +64,7 @@ export class EmptySlotError extends Error {
   readonly name = this.#class.name
 
   constructor() {
-    super(`Empty pool slot`)
+    super(`Empty slot`)
   }
 
 }
@@ -259,37 +259,6 @@ export class Pool<T> {
     const entry = this.stop(index)
     this.start(index)
     return entry
-  }
-
-  /**
-   * Start all slots until index
-   * @param size 
-   */
-  grow(index: number) {
-    for (let i = 0; i < index; i++)
-      this.start(i)
-
-    return
-  }
-
-  /**
-   * Stop all slots after index
-   * @param size 
-   * @returns 
-   */
-  shrink(index: number) {
-    const minimum = index + 1
-    const maximum = this.#allPromises.length
-
-    for (let i = minimum; i < maximum; i++)
-      this.stop(i)
-
-    this.#allPromises.length = minimum
-    this.#allEntries.length = minimum
-    this.#allAborters.length = minimum
-    this.#allOkPromises.length = minimum
-
-    return
   }
 
   /**
