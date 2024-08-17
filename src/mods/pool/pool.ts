@@ -153,7 +153,7 @@ export class Pool<T> {
     return this.elements.values()
   }
 
-  async #createOrThrow(index: number): Promise<PoolEntry<T>> {
+  async #create(index: number): Promise<PoolEntry<T>> {
     try {
       const aborter = new AbortController()
       this.#allAborters[index] = aborter
@@ -192,7 +192,7 @@ export class Pool<T> {
     if (this.#allPromises.at(index) != null)
       return
 
-    const resolveOnEntry = this.#createOrThrow(index)
+    const resolveOnEntry = this.#create(index)
 
     resolveOnEntry.catch(() => { })
 
