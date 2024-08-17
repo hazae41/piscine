@@ -84,21 +84,6 @@ export class Pool<T> {
   readonly #allPromises = new Array<Promise<PoolEntry<T>>>()
 
   /**
-   * Sparse entries by index
-   */
-  readonly #allEntries = new Array<PoolEntry<T>>()
-
-  /**
-   * Ok entries ordered by time
-   */
-  readonly #okEntries = new Set<PoolOkEntry<T>>()
-
-  /**
-   * Err entries ordered by time
-   */
-  readonly #errEntries = new Set<PoolErrEntry<T>>()
-
-  /**
    * Any promises ordered by time
    */
   readonly #anyPromises = new Set<Promise<PoolEntry<T>>>()
@@ -112,6 +97,21 @@ export class Pool<T> {
    * Ok promises ordered by time
    */
   readonly #okPromises = new Set<Promise<PoolOkEntry<T>>>()
+
+  /**
+   * Sparse entries by index
+   */
+  readonly #allEntries = new Array<PoolEntry<T>>()
+
+  /**
+   * Ok entries ordered by time
+   */
+  readonly #okEntries = new Set<PoolOkEntry<T>>()
+
+  /**
+   * Err entries ordered by time
+   */
+  readonly #errEntries = new Set<PoolErrEntry<T>>()
 
   /**
    * A pool of circuits
