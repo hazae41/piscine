@@ -11,7 +11,7 @@ test("pool", async ({ test }) => {
   const pool = new Pool<string>(async p => {
     const { index, pool } = p
 
-    console.log("creating", index)
+    console.log("creating entry", index)
     await new Promise(ok => setTimeout(ok, 1000))
 
     const i = setTimeout(() => {
@@ -20,12 +20,15 @@ test("pool", async ({ test }) => {
     }, 1000)
 
     const onEntryClean = () => {
-      console.log("cleaning", index)
+      console.log("cleaning entry", index)
       clearTimeout(i)
     }
 
     return new Disposer(new Box(crypto.randomUUID() as string), onEntryClean)
-  }, { capacity: 1 })
+  })
+
+  for (let i = 0; i < 10; i++)
+    pool.start(0)
 
   const mutex = new Mutex(pool)
 
