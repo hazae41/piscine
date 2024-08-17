@@ -104,6 +104,11 @@ export class Pool<T> {
   readonly #allEntries = new Array<PoolEntry<T>>()
 
   /**
+   * Any entries ordered by time
+   */
+  readonly #anyEntries = new Set<PoolEntry<T>>()
+
+  /**
    * Ok entries ordered by time
    */
   readonly #okEntries = new Set<PoolOkEntry<T>>()
@@ -123,47 +128,57 @@ export class Pool<T> {
   ) { }
 
   /**
-   * Elements
+   * Any entries
    */
-  get elements() {
-    return this.#okEntries
+  get anyEntries() {
+    return this.#anyEntries.values()
   }
 
   /**
-   * Errors
+   * Ok entries
    */
-  get errors() {
-    return this.#errEntries
+  get okEntries() {
+    return this.#okEntries.values()
   }
 
   /**
-   * Promises
+   * Err entries
    */
-  get promises() {
-    return this.#anyPromises
+  get errEntries() {
+    return this.#errEntries.values()
+  }
+
+  /**
+   * Any promises
+   */
+  get anyPromises() {
+    return this.#anyPromises.values()
+  }
+
+  /**
+   * Ok promises
+   */
+  get okPromises() {
+    return this.#okPromises.values()
   }
 
   /**
    * Number of slots
    */
-  get capacity() {
+  get length() {
     return this.#allPromises.length
   }
 
   /**
-   * Iterate on elements
+   * Iterate on entries
    * @returns 
    */
   [Symbol.iterator]() {
-    return this.elements.values()
+    return this.#anyEntries.values()
   }
 
-  async #create(index: number): Promise<PoolEntry<T>> {
+  async #createOrThrow(index: number, signal: AbortSignal): Promise<PoolEntry<T>> {
     try {
-      const aborter = new AbortController()
-      this.#allAborters[index] = aborter
-      const { signal } = aborter
-
       using box = new Box(await this.creator({ pool: this, index, signal }))
 
       signal.throwIfAborted()
@@ -171,15 +186,19 @@ export class Pool<T> {
       const entry = new PoolOkEntry(this, index, box.unwrapOrThrow())
 
       this.#allEntries[index] = entry
+      this.#anyEntries.add(entry)
       this.#okEntries.add(entry)
 
       this.events.emit("created", entry).catch(console.error)
 
       return entry
     } catch (e: unknown) {
+      signal.throwIfAborted()
+
       const entry = new PoolErrEntry(this, index, Catched.wrap(e))
 
       this.#allEntries[index] = entry
+      this.#anyEntries.add(entry)
       this.#errEntries.add(entry)
 
       this.events.emit("created", entry).catch(console.error)
@@ -197,7 +216,11 @@ export class Pool<T> {
     if (this.#allPromises.at(index) != null)
       return
 
-    const resolveOnEntry = this.#create(index)
+    const aborter = new AbortController()
+    this.#allAborters[index] = aborter
+    const { signal } = aborter
+
+    const resolveOnEntry = this.#createOrThrow(index, signal)
 
     resolveOnEntry.catch(() => { })
 
@@ -254,6 +277,8 @@ export class Pool<T> {
 
     if (entry.isErr())
       this.#errEntries.delete(entry)
+
+    this.#anyEntries.delete(entry)
 
     delete this.#allEntries[index]
 
