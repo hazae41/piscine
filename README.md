@@ -32,12 +32,30 @@ import "@hazae41/disposable-stack-polyfill";
 import { Disposer } from "@hazae41/disposer"
 import { Box } from "@hazae41/box"
 import { Pool } from "@hazae41/piscine"
+import { Future } from "@hazae41/future"
+
+async function openOrThrow(socket: WebSocket) {
+  using stack = new DisposableStack()
+
+  const future = new Future<void>()
+
+  const onOpen = () => future.resolve()
+  const onError = () => future.reject(new Error("Errored"))
+
+  socket.addEventListener("open", onOpen, { passive: true })
+  stack.defer(() => socket.removeEventListener("open", onOpen))
+  
+  socket.addEventListener("error", onError, { passive: true })
+  stack.defer(() => socket.removeEventListener("error", onError))
+
+  return await future.promise
+}
 
 const pool = new Pool<Disposer<WebSocket>>(async ({ pool, index, signal }) => {
   using stack = new Box(new DisposableStack())
 
   const raw = new WebSocket(`/api`)
-  await WebSockets.waitOrThrow(raw)
+  await waitOrThrow(raw)
 
   const socket = new Disposer(raw, () => raw.close())
 
