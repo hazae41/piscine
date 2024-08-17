@@ -25,6 +25,12 @@ npm i @hazae41/piscine
 Create a pool of WebSockets
 
 ```tsx
+import "@hazae41/symbol-dispose-polyfill";
+
+import "@hazae41/disposable-stack-polyfill";
+
+import { Disposer } from "@hazae41/disposer"
+import { Box } from "@hazae41/box"
 import { Pool } from "@hazae41/piscine"
 
 const pool = new Pool<Disposer<WebSocket>>(async ({ pool, index, signal }) => {
@@ -32,7 +38,7 @@ const pool = new Pool<Disposer<WebSocket>>(async ({ pool, index, signal }) => {
 
   const raw = new WebSocket(`/api`)
   await WebSockets.waitOrThrow(raw)
-  
+
   const socket = new Disposer(raw, () => raw.close())
 
   const box = new Box(socket)
@@ -56,7 +62,13 @@ for (let i = 0; i < 5; i++)
   pool.start(i)
 ```
 
-Get a random open socket using Math's PRNG
+You can get the second one
+
+```tsx
+const socket = await pool.getOrThrow(1)
+```
+
+You can get a random one using Math's PRNG
 
 ```tsx
 const socket = await pool.getRandomOrThrow()
@@ -64,7 +76,7 @@ const socket = await pool.getRandomOrThrow()
 socket.get().send("Hello world")
 ```
 
-Get a random open socket using WebCrypto's CSPRNG
+You can get a random one using WebCrypto's CSPRNG
 
 ```tsx
 const socket = await pool.getCryptoRandomOrThrow()
@@ -72,15 +84,31 @@ const socket = await pool.getCryptoRandomOrThrow()
 socket.get().send("Hello world")
 ```
 
-### Iteration
-
-Pools are iterator, so you can loop through open sockets or create an array
+You can iterate on them
 
 ```tsx
 for (const socket of pool)
   socket.get().send("Hello world")
 ```
 
+Or grab all of them
+
 ```tsx
 const sockets = [...pool]
+```
+
+You can take a random one from the pool (and restart its index)
+
+```tsx
+import { Mutex } from "@hazae41/mutex"
+
+const mutex = new Mutex(pool)
+
+{
+  using socket = await Pool.takeCryptoRandomOrThrow(mutex)
+
+  socket.get().send("Hello world")
+
+  // Close socket
+}
 ```
