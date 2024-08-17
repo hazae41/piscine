@@ -34,19 +34,23 @@ import { Box } from "@hazae41/box"
 import { Pool } from "@hazae41/piscine"
 import { Future } from "@hazae41/future"
 
-async function openOrThrow(socket: WebSocket) {
+async function openOrThrow(socket: WebSocket, signal: AbortSignal) {
   using stack = new DisposableStack()
 
   const future = new Future<void>()
 
   const onOpen = () => future.resolve()
   const onError = () => future.reject(new Error("Errored"))
+  const onAbort = () => future.reject(new Error("Aborted"))
 
   socket.addEventListener("open", onOpen, { passive: true })
   stack.defer(() => socket.removeEventListener("open", onOpen))
   
   socket.addEventListener("error", onError, { passive: true })
   stack.defer(() => socket.removeEventListener("error", onError))
+
+  signal.addEventListener("abort", onAbort, { passive: true })
+  stack.defer(() => signal.removeEventListener("abort", onAbort))
 
   return await future.promise
 }
@@ -55,7 +59,7 @@ const pool = new Pool<Disposer<WebSocket>>(async ({ pool, index, signal }) => {
   using stack = new Box(new DisposableStack())
 
   const raw = new WebSocket(`/api`)
-  await waitOrThrow(raw)
+  await waitOrThrow(raw, signal)
 
   const socket = new Disposer(raw, () => raw.close())
 
