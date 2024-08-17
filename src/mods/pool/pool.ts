@@ -74,9 +74,9 @@ export class Pool<T> {
   readonly events = new SuperEventTarget<PoolEvents<T>>()
 
   /**
-   * Sparse entries by index
+   * Sparse aborters by index
    */
-  readonly #allEntries = new Array<PoolEntry<T>>()
+  readonly #allAborters = new Array<AbortController>()
 
   /**
    * Sparse entry promises by index
@@ -84,9 +84,9 @@ export class Pool<T> {
   readonly #allPromises = new Array<Promise<PoolEntry<T>>>()
 
   /**
-   * Sparse aborters by index
+   * Sparse entries by index
    */
-  readonly #allAborters = new Array<AbortController>()
+  readonly #allEntries = new Array<PoolEntry<T>>()
 
   /**
    * Ok entries ordered by time
@@ -97,6 +97,11 @@ export class Pool<T> {
    * Err entries ordered by time
    */
   readonly #errEntries = new Set<PoolErrEntry<T>>()
+
+  /**
+   * Any promises ordered by time
+   */
+  readonly #anyPromises = new Set<Promise<PoolEntry<T>>>()
 
   /**
    * Sparse ok promises by index
@@ -135,7 +140,7 @@ export class Pool<T> {
    * Promises
    */
   get promises() {
-    return this.#okPromises
+    return this.#anyPromises
   }
 
   /**
@@ -197,6 +202,7 @@ export class Pool<T> {
     resolveOnEntry.catch(() => { })
 
     this.#allPromises[index] = resolveOnEntry
+    this.#anyPromises.add(resolveOnEntry)
 
     const resolveOnOk = resolveOnEntry.then(entry => entry.check())
 
@@ -221,13 +227,19 @@ export class Pool<T> {
 
     delete this.#allAborters[index]
 
+    const resolveOnEntry = this.#allPromises.at(index)
+
+    if (resolveOnEntry != null)
+      this.#anyPromises.delete(resolveOnEntry)
+
+    delete this.#allPromises[index]
+
     const resolveOnOk = this.#allOkPromises.at(index)
 
     if (resolveOnOk != null)
       this.#okPromises.delete(resolveOnOk)
 
     delete this.#allOkPromises[index]
-    delete this.#allPromises[index]
 
     const entry = this.#allEntries.at(index)
 
