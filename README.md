@@ -22,75 +22,54 @@ npm i @hazae41/piscine
 
 ### WebSockets
 
-Create a pool of 5 WebSockets
+Create a pool of WebSockets
 
 ```tsx
 import { Pool } from "@hazae41/piscine"
 
 const pool = new Pool<Disposer<WebSocket>>(async ({ pool, index, signal }) => {
+  using stack = new Box(new DisposableStack())
+
   const raw = new WebSocket(`/api`)
+  await WebSockets.waitOrThrow(raw)
+  
+  const socket = new Disposer(raw, () => raw.close())
 
-  /**
-   * Define the socket
-   */
-  using presocket = new Box(new Disposer(raw, () => raw.close()))
+  const box = new Box(socket)
+  stack.getOrThrow().use(box)
 
-  /**
-   * Prepare the entry
-   */
-  const onCloseOrError = () => {
-    pool.restart(index)
-  }
+  const onClose = () => pool.restart(index)
 
-  raw.addEventListener("error", onCloseOrError)
-  raw.addEventListener("close", onCloseOrError)
+  raw.addEventListener("close", onClose, { passive: true })
+  stack.getOrThrow().defer(() => raw.removeEventListener("close", onClose))
 
-  /**
-   * Move socket in the entry
-   */
-  const socket = presocket.moveOrThrow()
+  const unstack = stack.unwrapOrThrow()
 
-  const onEntryClean = () => {
-    /** 
-     * Dispose the socket if the entry still owns it
-     */
-    using postsocket = socket
-
-    /**
-     * Clean the entry
-     */
-    raw.removeEventListener("error", onCloseOrError)
-    raw.removeEventListener("close", onCloseOrError)
-  }
-
-  /**
-   * Define the entry
-   */
-  using preentry = new Box(new Disposer(socket, onEntryClean))
-
-  /**
-   * Move the entry in the pool
-   */
-  return new Ok(preentry.unwrapOrThrow())
-}, { capacity: 5 })
+  return new Disposer(box, () => unstack.dispose())
+})
 ```
 
-### Random
+Start 5 of them
+
+```tsx
+for (let i = 0; i < 5; i++)
+  pool.start(i)
+```
 
 Get a random open socket using Math's PRNG
 
 ```tsx
-const socket = await pool.random()
+const socket = await pool.getRandomOrThrow()
 
-socket.send("Hello world")
+socket.get().send("Hello world")
 ```
 
 Get a random open socket using WebCrypto's CSPRNG
 
 ```tsx
-const socket = await pool.cryptoRandom()
+const socket = await pool.getCryptoRandomOrThrow()
 
-socket.send("Hello world")
+socket.get().send("Hello world")
 ```
 
 ### Iteration
@@ -99,7 +78,7 @@ Pools are iterator, so you can loop through open sockets or create an array
 
 ```tsx
 for (const socket of pool)
-  socket.send("Hello world")
+  socket.get().send("Hello world")
 ```
 
 ```tsx

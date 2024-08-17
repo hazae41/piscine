@@ -119,6 +119,16 @@ export class Pool<T> {
   readonly #errEntries = new Set<PoolErrEntry<T>>()
 
   /**
+   * All values by index
+   */
+  readonly #allValues = new Array<T>()
+
+  /**
+   * Values ordered by time
+   */
+  readonly #values = new Set<T>()
+
+  /**
    * A pool of circuits
    * @param tor 
    * @param params 
@@ -163,6 +173,13 @@ export class Pool<T> {
   }
 
   /**
+   * Values
+   */
+  get values() {
+    return this.#values.values()
+  }
+
+  /**
    * Number of slots
    */
   get length() {
@@ -170,11 +187,10 @@ export class Pool<T> {
   }
 
   /**
-   * Iterate on entries
-   * @returns 
+   * Iterate on values
    */
   [Symbol.iterator]() {
-    return this.#anyEntries.values()
+    return this.#values.values()
   }
 
   async #createOrThrow(index: number, signal: AbortSignal): Promise<PoolEntry<T>> {
@@ -183,19 +199,27 @@ export class Pool<T> {
 
       signal.throwIfAborted()
 
-      const entry = new PoolOkEntry(this, index, box.unwrapOrThrow())
+      const boxed = box.getOrThrow()
+      const value = boxed.get().getOrThrow()
+      const entry = new PoolOkEntry(this, index, boxed)
 
       this.#allEntries[index] = entry
       this.#anyEntries.add(entry)
       this.#okEntries.add(entry)
 
+      this.#allValues[index] = value
+      this.#values.add(value)
+
       this.events.emit("created", entry).catch(console.error)
+
+      box.unwrapOrThrow()
 
       return entry
     } catch (e: unknown) {
       signal.throwIfAborted()
 
-      const entry = new PoolErrEntry(this, index, Catched.wrap(e))
+      const value = Catched.wrap(e)
+      const entry = new PoolErrEntry(this, index, value)
 
       this.#allEntries[index] = entry
       this.#anyEntries.add(entry)
@@ -264,6 +288,13 @@ export class Pool<T> {
 
     delete this.#allOkPromises[index]
 
+    const value = this.#allValues.at(index)
+
+    if (value != null)
+      this.#values.delete(value)
+
+    delete this.#allValues[index]
+
     const entry = this.#allEntries.at(index)
 
     if (entry == null)
@@ -289,7 +320,6 @@ export class Pool<T> {
 
   /**
    * Restart the index and return the previous entry
-   * @param element 
    * @returns 
    */
   restart(index: number) {
@@ -316,9 +346,9 @@ export class Pool<T> {
   }
 
   /**
-   * Get the element at index or throw if not available
+   * Get the value at index or throw if not available
    * @param index 
-   * @returns the element at index
+   * @returns the value at index
    * @throws if empty
    */
   async getOrThrow(index: number, signal = Signals.never()): Promise<T> {
@@ -341,9 +371,9 @@ export class Pool<T> {
   }
 
   /**
-   * Get the element at index or throw if not available
+   * Get the value at index or throw if not available
    * @param index 
-   * @returns the element at index
+   * @returns the value at index
    * @throws if empty
    */
   getSyncOrThrow(index: number): T {
@@ -371,7 +401,7 @@ export class Pool<T> {
   }
 
   /**
-   * Get a random element from the pool using Math's PRNG or throw if none available
+   * Get a random value from the pool using Math's PRNG or throw if none available
    * @returns 
    */
   async getRandomOrThrow(signal = Signals.never()): Promise<T> {
@@ -392,7 +422,7 @@ export class Pool<T> {
   }
 
   /**
-   * Get a random element from the pool using Math's PRNG or throw if none available
+   * Get a random value from the pool using Math's PRNG or throw if none available
    * @returns 
    */
   getRandomSyncOrThrow(): T {
@@ -420,7 +450,7 @@ export class Pool<T> {
   }
 
   /**
-   * Get a random element from the pool using WebCrypto's CSPRNG or throw if none available
+   * Get a random value from the pool using WebCrypto's CSPRNG or throw if none available
    * @returns 
    */
   async getCryptoRandomOrThrow(signal = Signals.never()): Promise<T> {
@@ -441,7 +471,7 @@ export class Pool<T> {
   }
 
   /**
-   * Get a random element from the pool using WebCrypto's CSPRNG or throw if none available
+   * Get a random value from the pool using WebCrypto's CSPRNG or throw if none available
    * @returns 
    */
   getCryptoRandomSyncOrThrow(): T {
@@ -469,7 +499,7 @@ export class Pool<T> {
   }
 
   /**
-   * Take a random element from the pool using Math's PRNG or throw if none available
+   * Take a random value from the pool using Math's PRNG or throw if none available
    * @returns 
    */
   takeRandomSyncOrThrow(): T {
@@ -499,7 +529,7 @@ export class Pool<T> {
   }
 
   /**
-   * Take a random element from the pool using Math's PRNG or throw if none available
+   * Take a random value from the pool using Math's PRNG or throw if none available
    * @returns 
    */
   static async takeRandomOrThrow<T>(pool: Mutex<Pool<T>>, signal = Signals.never()) {
@@ -527,7 +557,7 @@ export class Pool<T> {
   }
 
   /**
-   * Take a random element from the pool using WebCrypto's CSPRNG or throw if none available
+   * Take a random value from the pool using WebCrypto's CSPRNG or throw if none available
    * @returns 
    */
   takeCryptoRandomSyncOrThrow(): T {
@@ -557,7 +587,7 @@ export class Pool<T> {
   }
 
   /**
-   * Take a random element from the pool using WebCrypto's CSPRNG or throw if none available
+   * Take a random value from the pool using WebCrypto's CSPRNG or throw if none available
    * @returns 
    */
   static async takeCryptoRandomOrThrow<T>(pool: Mutex<Pool<T>>, signal = Signals.never()) {
