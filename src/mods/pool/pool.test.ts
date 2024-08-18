@@ -7,37 +7,40 @@ import { test } from "@hazae41/phobos"
 import { Pool } from "./pool.js"
 
 test("pool", async ({ test }) => {
+  const pool = new Pool<Disposer<string>>(async (params) => {
+    const { index } = params
 
-  const pool = new Pool<string>(async p => {
-    const { index } = p
+    const uuid = crypto.randomUUID() as string
 
-    console.log("creating entry", index)
-    await new Promise(ok => setTimeout(ok, 1000))
+    console.log("creating", uuid)
 
-    const i = setTimeout(() => {
-      console.log("lol", index)
-      pool.restart(index)
-    }, 1000)
-
-    const onEntryClean = () => {
-      console.log("cleaning entry", index)
-      clearTimeout(i)
+    const onValueClean = () => {
+      console.log("cleaning value", uuid)
     }
 
-    return new Disposer(new Box(crypto.randomUUID() as string), onEntryClean)
+    const onEntryClean = () => {
+      console.log("cleaning entry", uuid)
+    }
+
+    const entry = new Disposer(uuid, onValueClean)
+
+    return new Disposer(new Box(entry), onEntryClean)
   })
 
-  for (let i = 0; i < 10; i++)
-    pool.start(0)
+  pool.start(0)
 
   const mutex = new Mutex(pool)
 
-  while (true) {
-    const x = await pool.getOrThrow(0)
-    console.log(x)
-    await new Promise(ok => setTimeout(ok, 1000))
+  async function a() {
+    console.log("a", await Pool.takeCryptoRandomOrThrow(mutex).then(r => r.get()))
   }
 
-  await new Promise(ok => setTimeout(ok, 5 * 1000))
-  console.log("stop")
+  async function b() {
+    console.log("b", await Pool.takeCryptoRandomOrThrow(mutex).then(r => r.get()))
+  }
+
+  const pa = a()
+  const pb = b()
+
+  await Promise.all([pa, pb])
 })
