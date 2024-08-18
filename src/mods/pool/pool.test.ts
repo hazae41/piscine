@@ -9,7 +9,7 @@ import { Pool } from "./pool.js"
 test("pool", async ({ test }) => {
 
   const pool = new Pool<string>(async p => {
-    const { index, pool } = p
+    const { index } = p
 
     console.log("creating entry", index)
     await new Promise(ok => setTimeout(ok, 1000))

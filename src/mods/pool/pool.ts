@@ -6,14 +6,13 @@ import { SuperEventTarget } from "@hazae41/plume";
 import { Catched, Err, Ok } from "@hazae41/result";
 import { Signals } from "@hazae41/signals";
 
-export interface PoolCreatorParams<T> {
-  readonly pool: Pool<T>
+export interface PoolCreatorParams {
   readonly index: number
   readonly signal: AbortSignal
 }
 
 export type PoolCreator<T> =
-  (params: PoolCreatorParams<T>) => Promise<Disposer<Box<T>>>
+  (params: PoolCreatorParams) => Promise<Disposer<Box<T>>>
 
 export type PoolEntry<T> =
   | PoolOkEntry<T>
@@ -195,7 +194,7 @@ export class Pool<T> {
 
   async #createOrThrow(index: number, signal: AbortSignal): Promise<PoolEntry<T>> {
     try {
-      using box = new Box(await this.creator({ pool: this, index, signal }))
+      using box = new Box(await this.creator({ index, signal }))
 
       signal.throwIfAborted()
 
