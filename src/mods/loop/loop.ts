@@ -1,5 +1,3 @@
-import { AbortedError } from "@hazae41/plume"
-import { Err, Result } from "@hazae41/result"
 
 export type Looper<T> =
   (index: number) => Promise<T>
@@ -202,37 +200,4 @@ export async function loopOrThrow<T>(
   }
 
   throw TooManyRetriesError.from(errors)
-}
-
-export async function tryLoop<T, E extends Looped.Infer<E>>(
-  looper: Looper<Result<T, E>>,
-  options: LoopOptions = {}
-): Promise<Result<T, Cancel.Inner<E> | AbortedError | TooManyRetriesError>> {
-  const { init = 1000, base = 2, max = 3 } = options
-
-  const errors = new Array<E>()
-
-  for (let i = 0; i < max; i++) {
-    const result = await looper(i)
-
-    if (result.isOk())
-      return result
-
-    const looped = result.getErr()
-
-    if (looped.isSkip()) {
-      errors.push(looped)
-      continue
-    }
-
-    if (looped.isRetry()) {
-      errors.push(looped)
-      await new Promise(ok => setTimeout(ok, init * (base ** i)))
-      continue
-    }
-
-    return new Err(looped.inner)
-  }
-
-  return new Err(TooManyRetriesError.from(errors))
 }

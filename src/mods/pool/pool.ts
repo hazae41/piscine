@@ -250,7 +250,7 @@ export class Pool<T> {
     this.#allPromises[index] = resolveOnEntry
     this.#anyPromises.add(resolveOnEntry)
 
-    const resolveOnOk = resolveOnEntry.then(entry => entry.check())
+    const resolveOnOk = resolveOnEntry.then(entry => entry.checkOrThrow())
 
     resolveOnOk.catch(() => { })
 
@@ -333,7 +333,7 @@ export class Pool<T> {
    * @returns the entry at index
    * @throws if empty
    */
-  async getRawOrThrow(index: number, signal = Signals.never()): Promise<PoolEntry<T>> {
+  async getRawOrThrow(index: number, signal = new AbortController().signal): Promise<PoolEntry<T>> {
     const resolveOnEntry = this.#allPromises.at(index)
 
     if (resolveOnEntry === undefined)
@@ -350,8 +350,8 @@ export class Pool<T> {
    * @returns the value at index
    * @throws if empty
    */
-  async getOrThrow(index: number, signal = Signals.never()): Promise<T> {
-    return await this.getRawOrThrow(index, signal).then(r => r.unwrap().get().getOrThrow())
+  async getOrThrow(index: number, signal = new AbortController().signal): Promise<T> {
+    return await this.getRawOrThrow(index, signal).then(r => r.getOrThrow().get().getOrThrow())
   }
 
   /**
@@ -376,14 +376,14 @@ export class Pool<T> {
    * @throws if empty
    */
   getSyncOrThrow(index: number): T {
-    return this.getRawSyncOrThrow(index).unwrap().get().getOrThrow()
+    return this.getRawSyncOrThrow(index).getOrThrow().get().getOrThrow()
   }
 
   /**
    * Get a random entry from the pool using Math's PRNG or throw if none available
    * @returns 
    */
-  async getRawRandomOrThrow(signal = Signals.never()): Promise<PoolEntry<T>> {
+  async getRawRandomOrThrow(signal = new AbortController().signal): Promise<PoolEntry<T>> {
     while (true) {
       using rejectOnAbort = Signals.rejectOnAbort(signal)
       const resolveOnFirst = Promise.any(this.#okPromises)
@@ -403,8 +403,8 @@ export class Pool<T> {
    * Get a random value from the pool using Math's PRNG or throw if none available
    * @returns 
    */
-  async getRandomOrThrow(signal = Signals.never()): Promise<T> {
-    return await this.getRawRandomOrThrow(signal).then(r => r.unwrap().get().getOrThrow())
+  async getRandomOrThrow(signal = new AbortController().signal): Promise<T> {
+    return await this.getRawRandomOrThrow(signal).then(r => r.getOrThrow().get().getOrThrow())
   }
 
   /**
@@ -425,14 +425,14 @@ export class Pool<T> {
    * @returns 
    */
   getRandomSyncOrThrow(): T {
-    return this.getRawRandomSyncOrThrow().unwrap().get().getOrThrow()
+    return this.getRawRandomSyncOrThrow().getOrThrow().get().getOrThrow()
   }
 
   /**
    * Get a random entry from the pool using WebCrypto's CSPRNG or throw if none available
    * @returns 
    */
-  async getRawCryptoRandomOrThrow(signal = Signals.never()): Promise<PoolEntry<T>> {
+  async getRawCryptoRandomOrThrow(signal = new AbortController().signal): Promise<PoolEntry<T>> {
     while (true) {
       using rejectOnAbort = Signals.rejectOnAbort(signal)
       const resolveOnFirst = Promise.any(this.#okPromises)
@@ -452,8 +452,8 @@ export class Pool<T> {
    * Get a random value from the pool using WebCrypto's CSPRNG or throw if none available
    * @returns 
    */
-  async getCryptoRandomOrThrow(signal = Signals.never()): Promise<T> {
-    return await this.getRawCryptoRandomOrThrow(signal).then(r => r.unwrap().get().getOrThrow())
+  async getCryptoRandomOrThrow(signal = new AbortController().signal): Promise<T> {
+    return await this.getRawCryptoRandomOrThrow(signal).then(r => r.getOrThrow().get().getOrThrow())
   }
 
   /**
@@ -474,7 +474,7 @@ export class Pool<T> {
    * @returns 
    */
   getCryptoRandomSyncOrThrow(): T {
-    return this.getRawCryptoRandomSyncOrThrow().unwrap().get().getOrThrow()
+    return this.getRawCryptoRandomSyncOrThrow().getOrThrow().get().getOrThrow()
   }
 
   /**
@@ -502,15 +502,15 @@ export class Pool<T> {
    * @returns 
    */
   takeRandomSyncOrThrow(): T {
-    return this.takeRawRandomSyncOrThrow().unwrap().get().unwrapOrThrow()
+    return this.takeRawRandomSyncOrThrow().getOrThrow().get().unwrapOrThrow()
   }
 
   /**
    * Take a random entry from the pool using Math's PRNG or throw if none available
    * @returns 
    */
-  static async takeRawRandomOrThrow<T>(pool: Mutex<Pool<T>>, signal = Signals.never()) {
-    return await pool.lock(async pool => {
+  static async takeRawRandomOrThrow<T>(pool: Mutex<Pool<T>>, signal = new AbortController().signal) {
+    return await pool.lockOrWait(async pool => {
       const entry = await pool.getRawRandomOrThrow(signal)
 
       if (entry.isErr())
@@ -531,8 +531,8 @@ export class Pool<T> {
    * Take a random value from the pool using Math's PRNG or throw if none available
    * @returns 
    */
-  static async takeRandomOrThrow<T>(pool: Mutex<Pool<T>>, signal = Signals.never()) {
-    return await this.takeRawRandomOrThrow(pool, signal).then(r => r.unwrap().get().unwrapOrThrow())
+  static async takeRandomOrThrow<T>(pool: Mutex<Pool<T>>, signal = new AbortController().signal) {
+    return await this.takeRawRandomOrThrow(pool, signal).then(r => r.getOrThrow().get().unwrapOrThrow())
   }
 
   /**
@@ -560,15 +560,15 @@ export class Pool<T> {
    * @returns 
    */
   takeCryptoRandomSyncOrThrow(): T {
-    return this.takeRawCryptoRandomSyncOrThrow().unwrap().get().unwrapOrThrow()
+    return this.takeRawCryptoRandomSyncOrThrow().getOrThrow().get().unwrapOrThrow()
   }
 
   /**
    * Take a random entry from the pool using WebCrypto's CSPRNG or throw if none available
    * @returns 
    */
-  static async takeRawCryptoRandomOrThrow<T>(pool: Mutex<Pool<T>>, signal = Signals.never()) {
-    return await pool.lock(async pool => {
+  static async takeRawCryptoRandomOrThrow<T>(pool: Mutex<Pool<T>>, signal = new AbortController().signal) {
+    return await pool.lockOrWait(async pool => {
       const entry = await pool.getRawCryptoRandomOrThrow(signal)
 
       if (entry.isErr())
@@ -589,8 +589,8 @@ export class Pool<T> {
    * Take a random value from the pool using WebCrypto's CSPRNG or throw if none available
    * @returns 
    */
-  static async takeCryptoRandomOrThrow<T>(pool: Mutex<Pool<T>>, signal = Signals.never()) {
-    return await this.takeRawCryptoRandomOrThrow(pool, signal).then(r => r.unwrap().get().unwrapOrThrow())
+  static async takeCryptoRandomOrThrow<T>(pool: Mutex<Pool<T>>, signal = new AbortController().signal) {
+    return await this.takeRawCryptoRandomOrThrow(pool, signal).then(r => r.getOrThrow().get().unwrapOrThrow())
   }
 
 }
