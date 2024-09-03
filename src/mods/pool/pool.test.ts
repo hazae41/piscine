@@ -28,16 +28,13 @@ test("pool", async ({ test }) => {
 
   pool.start(0)
 
-  async function a() {
-    console.log("a", await pool.takeCryptoRandomOrThrow().then(r => r.get()))
+  async function takeAndLog() {
+    using x = await pool.takeCryptoRandomOrThrow()
+    console.log("a", x.get())
   }
 
-  async function b() {
-    console.log("b", await pool.takeCryptoRandomOrThrow().then(r => r.get()))
-  }
-
-  const pa = a()
-  const pb = b()
+  const pa = takeAndLog()
+  const pb = takeAndLog()
 
   await Promise.all([pa, pb])
 })
