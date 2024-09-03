@@ -2,7 +2,6 @@ import "@hazae41/symbol-dispose-polyfill"
 
 import { Box } from "@hazae41/box"
 import { Disposer } from "@hazae41/disposer"
-import { Mutex } from "@hazae41/mutex"
 import { test } from "@hazae41/phobos"
 import { Pool } from "./pool.js"
 
@@ -29,14 +28,12 @@ test("pool", async ({ test }) => {
 
   pool.start(0)
 
-  const mutex = new Mutex(pool)
-
   async function a() {
-    console.log("a", await Pool.takeCryptoRandomOrThrow(mutex).then(r => r.get()))
+    console.log("a", await pool.takeCryptoRandomOrThrow().then(r => r.get()))
   }
 
   async function b() {
-    console.log("b", await Pool.takeCryptoRandomOrThrow(mutex).then(r => r.get()))
+    console.log("b", await pool.takeCryptoRandomOrThrow().then(r => r.get()))
   }
 
   const pa = a()
