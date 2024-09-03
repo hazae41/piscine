@@ -179,10 +179,10 @@ export class Pool<T> {
   }
 
   /**
-   * Number of slots
+   * Number of values
    */
-  get length() {
-    return this.#allPromises.length
+  get size() {
+    return this.#values.size
   }
 
   /**

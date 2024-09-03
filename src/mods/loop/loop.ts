@@ -35,9 +35,6 @@ export namespace Looped {
 
 }
 
-/**
- * @deprecated
- */
 export class Cancel<T> {
 
   constructor(
@@ -184,6 +181,9 @@ export async function loopOrThrow<T>(
     try {
       return await looper(i)
     } catch (error) {
+      if (error instanceof Cancel)
+        throw error.inner
+
       if (error instanceof Skip) {
         errors.push(error)
         continue
