@@ -128,6 +128,11 @@ export class Pool<T> {
   readonly #values = new Set<T>()
 
   /**
+   * Mutex
+   */
+  readonly #mutex = new Mutex<void>(undefined)
+
+  /**
    * A pool of circuits
    * @param tor 
    * @param params 
@@ -509,9 +514,9 @@ export class Pool<T> {
    * Take a random entry from the pool using Math's PRNG or throw if none available
    * @returns 
    */
-  static async takeRawRandomOrThrow<T>(pool: Mutex<Pool<T>>, signal = new AbortController().signal) {
-    return await pool.lockOrWait(async pool => {
-      const entry = await pool.getRawRandomOrThrow(signal)
+  async takeRawRandomOrThrow(signal = new AbortController().signal) {
+    return await this.#mutex.lockOrWait(async () => {
+      const entry = await this.getRawRandomOrThrow(signal)
 
       if (entry.isErr())
         return entry
@@ -519,9 +524,9 @@ export class Pool<T> {
       const { index, value } = entry
 
       const value2 = new Disposer(value.inner.moveOrThrow(), () => value.dispose())
-      const entry2 = new PoolOkEntry(pool, index, value2)
+      const entry2 = new PoolOkEntry(this, index, value2)
 
-      pool.restart(index)
+      this.restart(index)
 
       return entry2
     })
@@ -531,8 +536,8 @@ export class Pool<T> {
    * Take a random value from the pool using Math's PRNG or throw if none available
    * @returns 
    */
-  static async takeRandomOrThrow<T>(pool: Mutex<Pool<T>>, signal = new AbortController().signal) {
-    return await this.takeRawRandomOrThrow(pool, signal).then(r => r.getOrThrow().get().unwrapOrThrow())
+  async takeRandomOrThrow(signal = new AbortController().signal) {
+    return await this.takeRawRandomOrThrow(signal).then(r => r.getOrThrow().get().unwrapOrThrow())
   }
 
   /**
@@ -567,9 +572,9 @@ export class Pool<T> {
    * Take a random entry from the pool using WebCrypto's CSPRNG or throw if none available
    * @returns 
    */
-  static async takeRawCryptoRandomOrThrow<T>(pool: Mutex<Pool<T>>, signal = new AbortController().signal) {
-    return await pool.lockOrWait(async pool => {
-      const entry = await pool.getRawCryptoRandomOrThrow(signal)
+  async takeRawCryptoRandomOrThrow(signal = new AbortController().signal) {
+    return await this.#mutex.lockOrWait(async () => {
+      const entry = await this.getRawCryptoRandomOrThrow(signal)
 
       if (entry.isErr())
         return entry
@@ -577,9 +582,9 @@ export class Pool<T> {
       const { index, value } = entry
 
       const value2 = new Disposer(value.inner.moveOrThrow(), value.dispose)
-      const entry2 = new PoolOkEntry(pool, index, value2)
+      const entry2 = new PoolOkEntry(this, index, value2)
 
-      pool.restart(index)
+      this.restart(index)
 
       return entry2
     })
@@ -589,8 +594,8 @@ export class Pool<T> {
    * Take a random value from the pool using WebCrypto's CSPRNG or throw if none available
    * @returns 
    */
-  static async takeCryptoRandomOrThrow<T>(pool: Mutex<Pool<T>>, signal = new AbortController().signal) {
-    return await this.takeRawCryptoRandomOrThrow(pool, signal).then(r => r.getOrThrow().get().unwrapOrThrow())
+  async takeCryptoRandomOrThrow(signal = new AbortController().signal) {
+    return await this.takeRawCryptoRandomOrThrow(signal).then(r => r.getOrThrow().get().unwrapOrThrow())
   }
 
 }
