@@ -515,7 +515,7 @@ export class Pool<T> {
    * @returns 
    */
   async takeRawRandomOrThrow(signal = new AbortController().signal) {
-    return await this.#mutex.lockOrWait(async () => {
+    return await this.#mutex.runOrWait(async () => {
       const entry = await this.getRawRandomOrThrow(signal)
 
       if (entry.isErr())
@@ -573,7 +573,7 @@ export class Pool<T> {
    * @returns 
    */
   async takeRawCryptoRandomOrThrow(signal = new AbortController().signal) {
-    return await this.#mutex.lockOrWait(async () => {
+    return await this.#mutex.runOrWait(async () => {
       const entry = await this.getRawCryptoRandomOrThrow(signal)
 
       if (entry.isErr())
