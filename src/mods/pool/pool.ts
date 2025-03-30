@@ -1,7 +1,7 @@
 import { Arrays } from "@hazae41/arrays";
-import { Box } from "@hazae41/box";
+import { Borrow, Box, Stack } from "@hazae41/box";
 import { Disposer } from "@hazae41/disposer";
-import { Mutex } from "@hazae41/mutex";
+import { Nullable } from "@hazae41/option";
 import { SuperEventTarget } from "@hazae41/plume";
 import { Catched, Err, Ok } from "@hazae41/result";
 import { Signals } from "@hazae41/signals";
@@ -18,12 +18,68 @@ export type PoolEntry<T> =
   | PoolOkEntry<T>
   | PoolErrEntry<T>
 
-export class PoolOkEntry<T> extends Ok<Disposer<Box<T>>> {
+export class PoolItem<T> extends Box<T> {
 
   constructor(
     readonly pool: Pool<T>,
     readonly index: number,
-    readonly value: Disposer<Box<T>>
+    readonly value: T
+  ) {
+    super(value)
+  }
+
+  moveOrNull(): Nullable<Box<T>> {
+    const box = super.moveOrNull()
+    this.pool.restart(this.index)
+    return box
+  }
+
+  moveOrThrow(): Box<T> {
+    const box = super.moveOrThrow()
+    this.pool.restart(this.index)
+    return box
+  }
+
+  unwrapOrNull(): Nullable<T> {
+    const value = super.unwrapOrNull()
+    this.pool.restart(this.index)
+    return value
+  }
+
+  unwrapOrThrow(): T {
+    const value = super.unwrapOrThrow()
+    this.pool.restart(this.index)
+    return value
+  }
+
+  borrowOrNull(): Nullable<Borrow<T>> {
+    const borrow = super.borrowOrNull()
+    this.pool.pauseOrThrow(this.index)
+    return borrow
+  }
+
+  borrowOrThrow(): Borrow<T> {
+    const borrow = super.borrowOrThrow()
+    this.pool.pauseOrThrow(this.index)
+    return borrow
+  }
+
+  returnOrThrow(): void {
+    super.returnOrThrow()
+
+    this.pool.unpauseOrThrow(this.index)
+
+    return
+  }
+
+}
+
+export class PoolOkEntry<T> extends Ok<PoolItem<T>> {
+
+  constructor(
+    readonly pool: Pool<T>,
+    readonly index: number,
+    readonly value: PoolItem<T>
   ) {
     super(value)
   }
@@ -77,6 +133,8 @@ export class Pool<T> {
    */
   readonly #allAborters = new Array<AbortController>()
 
+  readonly #allDisposers = new Array<() => void>()
+
   /**
    * Sparse entry promises by index
    */
@@ -126,11 +184,6 @@ export class Pool<T> {
    * Values ordered by time
    */
   readonly #values = new Set<T>()
-
-  /**
-   * Mutex
-   */
-  readonly #mutex = new Mutex<void>(undefined)
 
   /**
    * A pool of circuits
@@ -199,13 +252,16 @@ export class Pool<T> {
 
   async #createOrThrow(index: number, signal: AbortSignal): Promise<PoolEntry<T>> {
     try {
-      using box = new Box(await this.creator({ index, signal }))
+      using stack = new Box(new Stack())
+
+      const created = await this.creator({ index, signal })
+      stack.getOrThrow().push(created)
 
       signal.throwIfAborted()
 
-      const boxed = box.getOrThrow()
-      const value = boxed.get().getOrThrow()
-      const entry = new PoolOkEntry(this, index, boxed)
+      const value = created.get().getOrThrow()
+      const item = new PoolItem(this, index, value)
+      const entry = new PoolOkEntry(this, index, item)
 
       this.#allEntries[index] = entry
       this.#anyEntries.add(entry)
@@ -214,9 +270,11 @@ export class Pool<T> {
       this.#allValues[index] = value
       this.#values.add(value)
 
+      this.#allDisposers[index] = () => created.dispose()
+
       this.events.emit("created", entry).catch(console.error)
 
-      box.unwrapOrThrow()
+      stack.unwrapOrThrow()
 
       return entry
     } catch (e: unknown) {
@@ -278,6 +336,13 @@ export class Pool<T> {
 
     delete this.#allAborters[index]
 
+    const disposer = this.#allDisposers.at(index)
+
+    if (disposer != null)
+      this.#allDisposers[index]()
+
+    delete this.#allDisposers[index]
+
     const resolveOnEntry = this.#allPromises.at(index)
 
     if (resolveOnEntry != null)
@@ -304,8 +369,7 @@ export class Pool<T> {
     if (entry == null)
       return
 
-    if (entry.isOk())
-      entry.get().dispose()
+    using _ = entry.getOr(null)
 
     if (entry.isOk())
       this.#okEntries.delete(entry)
@@ -320,6 +384,46 @@ export class Pool<T> {
     this.events.emit("deleted", entry).catch(console.error)
 
     return entry
+  }
+
+  pauseOrThrow(index: number) {
+    const entry = this.#allEntries.at(index)
+
+    if (entry == null)
+      throw new EmptySlotError()
+
+    this.#okEntries.delete(entry.checkOrThrow())
+
+    const resolveOnOk = this.#allOkPromises.at(index)
+
+    if (resolveOnOk == null)
+      throw new Error()
+
+    this.#okPromises.delete(resolveOnOk)
+    delete this.#allOkPromises[index]
+
+    const resolveOnReturn = resolveOnEntry.then(() => entry.checkOrThrow())
+
+    resolveOnOk.catch(() => { })
+
+    this.#allOkPromises[index] = resolveOnOk
+    this.#okPromises.add(resolveOnOk)
+  }
+
+  unpauseOrThrow(index: number) {
+    const entry = this.#allEntries.at(index)
+
+    if (entry == null)
+      throw new EmptySlotError()
+
+    this.#okEntries.add(entry.checkOrThrow())
+
+    const resolveOnOk = this.#allOkPromises.at(index)
+
+    if (resolveOnOk == null)
+      throw new Error()
+
+    this.#okPromises.add(resolveOnOk)
   }
 
   /**
@@ -338,7 +442,7 @@ export class Pool<T> {
    * @returns the entry at index
    * @throws if empty
    */
-  async getRawOrThrow(index: number, signal = new AbortController().signal): Promise<PoolEntry<T>> {
+  async getOrThrow(index: number, signal = new AbortController().signal): Promise<PoolEntry<T>> {
     const resolveOnEntry = this.#allPromises.at(index)
 
     if (resolveOnEntry === undefined)
@@ -350,22 +454,12 @@ export class Pool<T> {
   }
 
   /**
-   * Get the value at index or throw if not available
-   * @param index 
-   * @returns the value at index
-   * @throws if empty
-   */
-  async getOrThrow(index: number, signal = new AbortController().signal): Promise<T> {
-    return await this.getRawOrThrow(index, signal).then(r => r.getOrThrow().get().getOrThrow())
-  }
-
-  /**
    * Get the entry at index or throw if not available
    * @param index 
    * @returns the entry at index
    * @throws if empty
    */
-  getRawSyncOrThrow(index: number): PoolEntry<T> {
+  getSyncOrThrow(index: number): PoolEntry<T> {
     const entry = this.#allEntries.at(index)
 
     if (entry === undefined)
@@ -375,20 +469,10 @@ export class Pool<T> {
   }
 
   /**
-   * Get the value at index or throw if not available
-   * @param index 
-   * @returns the value at index
-   * @throws if empty
-   */
-  getSyncOrThrow(index: number): T {
-    return this.getRawSyncOrThrow(index).getOrThrow().get().getOrThrow()
-  }
-
-  /**
    * Get a random entry from the pool using Math's PRNG or throw if none available
    * @returns 
    */
-  async getRawRandomOrThrow(signal = new AbortController().signal): Promise<PoolEntry<T>> {
+  async getRandomOrThrow(signal = new AbortController().signal): Promise<PoolItem<T>> {
     while (true) {
       using rejectOnAbort = Signals.rejectOnAbort(signal)
       const resolveOnFirst = Promise.any(this.#okPromises)
@@ -396,7 +480,7 @@ export class Pool<T> {
       await Promise.race([resolveOnFirst, rejectOnAbort.get()])
 
       try {
-        return this.getRawRandomSyncOrThrow()
+        return this.getRandomSyncOrThrow()
       } catch (e: unknown) {
         console.error(e)
         continue
@@ -405,39 +489,23 @@ export class Pool<T> {
   }
 
   /**
-   * Get a random value from the pool using Math's PRNG or throw if none available
-   * @returns 
-   */
-  async getRandomOrThrow(signal = new AbortController().signal): Promise<T> {
-    return await this.getRawRandomOrThrow(signal).then(r => r.getOrThrow().get().getOrThrow())
-  }
-
-  /**
    * Get a random entry from the pool using Math's PRNG or throw if none available
    * @returns 
    */
-  getRawRandomSyncOrThrow(): PoolEntry<T> {
+  getRandomSyncOrThrow(): PoolItem<T> {
     const entry = Arrays.random([...this.#okEntries])
 
     if (entry == null)
       throw new EmptyPoolError()
 
-    return entry
-  }
-
-  /**
-   * Get a random value from the pool using Math's PRNG or throw if none available
-   * @returns 
-   */
-  getRandomSyncOrThrow(): T {
-    return this.getRawRandomSyncOrThrow().getOrThrow().get().getOrThrow()
+    return entry.get()
   }
 
   /**
    * Get a random entry from the pool using WebCrypto's CSPRNG or throw if none available
    * @returns 
    */
-  async getRawCryptoRandomOrThrow(signal = new AbortController().signal): Promise<PoolEntry<T>> {
+  async getCryptoRandomOrThrow(signal = new AbortController().signal): Promise<PoolItem<T>> {
     while (true) {
       using rejectOnAbort = Signals.rejectOnAbort(signal)
       const resolveOnFirst = Promise.any(this.#okPromises)
@@ -445,7 +513,7 @@ export class Pool<T> {
       await Promise.race([resolveOnFirst, rejectOnAbort.get()])
 
       try {
-        return this.getRawCryptoRandomSyncOrThrow()
+        return this.getCryptoRandomSyncOrThrow()
       } catch (e: unknown) {
         console.error(e)
         continue
@@ -454,148 +522,16 @@ export class Pool<T> {
   }
 
   /**
-   * Get a random value from the pool using WebCrypto's CSPRNG or throw if none available
-   * @returns 
-   */
-  async getCryptoRandomOrThrow(signal = new AbortController().signal): Promise<T> {
-    return await this.getRawCryptoRandomOrThrow(signal).then(r => r.getOrThrow().get().getOrThrow())
-  }
-
-  /**
    * Get a random entry from the pool using WebCrypto's CSPRNG or throw if none available
    * @returns 
    */
-  getRawCryptoRandomSyncOrThrow(): PoolEntry<T> {
+  getCryptoRandomSyncOrThrow(): PoolItem<T> {
     const entry = Arrays.cryptoRandom([...this.#okEntries])
 
     if (entry == null)
       throw new EmptyPoolError()
 
-    return entry
-  }
-
-  /**
-   * Get a random value from the pool using WebCrypto's CSPRNG or throw if none available
-   * @returns 
-   */
-  getCryptoRandomSyncOrThrow(): T {
-    return this.getRawCryptoRandomSyncOrThrow().getOrThrow().get().getOrThrow()
-  }
-
-  /**
-   * Take a random entry from the pool using Math's PRNG or throw if none available
-   * @returns 
-   */
-  takeRawRandomSyncOrThrow(): PoolEntry<T> {
-    const entry = this.getRawRandomSyncOrThrow()
-
-    if (entry.isErr())
-      return entry
-
-    const { index, value } = entry
-
-    const value2 = new Disposer(value.get().moveOrThrow(), () => value.dispose())
-    const entry2 = new PoolOkEntry(this, index, value2)
-
-    this.restart(index)
-
-    return entry2
-  }
-
-  /**
-   * Take a random value from the pool using Math's PRNG or throw if none available
-   * @returns 
-   */
-  takeRandomSyncOrThrow(): T {
-    return this.takeRawRandomSyncOrThrow().getOrThrow().get().unwrapOrThrow()
-  }
-
-  /**
-   * Take a random entry from the pool using Math's PRNG or throw if none available
-   * @returns 
-   */
-  async takeRawRandomOrThrow(signal = new AbortController().signal) {
-    return await this.#mutex.runOrWait(async () => {
-      const entry = await this.getRawRandomOrThrow(signal)
-
-      if (entry.isErr())
-        return entry
-
-      const { index, value } = entry
-
-      const value2 = new Disposer(value.inner.moveOrThrow(), () => value.dispose())
-      const entry2 = new PoolOkEntry(this, index, value2)
-
-      this.restart(index)
-
-      return entry2
-    })
-  }
-
-  /**
-   * Take a random value from the pool using Math's PRNG or throw if none available
-   * @returns 
-   */
-  async takeRandomOrThrow(signal = new AbortController().signal) {
-    return await this.takeRawRandomOrThrow(signal).then(r => r.getOrThrow().get().unwrapOrThrow())
-  }
-
-  /**
-   * Take a random entry from the pool using WebCrypto's CSPRNG or throw if none available
-   * @returns 
-   */
-  takeRawCryptoRandomSyncOrThrow(): PoolEntry<T> {
-    const entry = this.getRawCryptoRandomSyncOrThrow()
-
-    if (entry.isErr())
-      return entry
-
-    const { index, value } = entry
-
-    const value2 = new Disposer(value.get().moveOrThrow(), () => value.dispose())
-    const entry2 = new PoolOkEntry(this, index, value2)
-
-    this.restart(index)
-
-    return entry2
-  }
-
-  /**
-   * Take a random value from the pool using WebCrypto's CSPRNG or throw if none available
-   * @returns 
-   */
-  takeCryptoRandomSyncOrThrow(): T {
-    return this.takeRawCryptoRandomSyncOrThrow().getOrThrow().get().unwrapOrThrow()
-  }
-
-  /**
-   * Take a random entry from the pool using WebCrypto's CSPRNG or throw if none available
-   * @returns 
-   */
-  async takeRawCryptoRandomOrThrow(signal = new AbortController().signal) {
-    return await this.#mutex.runOrWait(async () => {
-      const entry = await this.getRawCryptoRandomOrThrow(signal)
-
-      if (entry.isErr())
-        return entry
-
-      const { index, value } = entry
-
-      const value2 = new Disposer(value.inner.moveOrThrow(), value.dispose)
-      const entry2 = new PoolOkEntry(this, index, value2)
-
-      this.restart(index)
-
-      return entry2
-    })
-  }
-
-  /**
-   * Take a random value from the pool using WebCrypto's CSPRNG or throw if none available
-   * @returns 
-   */
-  async takeCryptoRandomOrThrow(signal = new AbortController().signal) {
-    return await this.takeRawCryptoRandomOrThrow(signal).then(r => r.getOrThrow().get().unwrapOrThrow())
+    return entry.get()
   }
 
 }
