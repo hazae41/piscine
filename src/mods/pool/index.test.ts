@@ -37,11 +37,14 @@ test("pool", async ({ test }) => {
     return entry
   })
 
-  const fake = await create()
+  const fake0 = await create()
+  const fake1 = await create()
 
-  pool.setOrThrow(0, new Ok(fake))
+  pool.setOrThrow(0, new Ok(fake0))
+  pool.setOrThrow(1, new Ok(fake1))
 
-  borrow(pool.getOrThrow(0))
+  // borrow(pool.getOrThrow(0))
+  // borrow(pool.getOrThrow(1))
 
   async function borrow(box: Box<Disposer<string>>) {
     using borrow = box.borrowOrThrow()
@@ -49,8 +52,9 @@ test("pool", async ({ test }) => {
     await new Promise(ok => setTimeout(ok, 1000))
   }
 
-  console.log("waiting for entry")
-  const x = await pool.getOrWaitOrThrow(0)
+  console.log("waiting for any entry")
+
+  const x = await pool.getRandomOrWaitOrThrow()
 
   console.log("got", x.getOrThrow().getOrThrow().get())
 

@@ -1,3 +1,4 @@
+import { Arrays } from "@hazae41/arrays";
 import { Box, Deferred, Stack } from "@hazae41/box";
 import { Disposer } from "@hazae41/disposer";
 import { Future } from "@hazae41/future";
@@ -316,7 +317,7 @@ export class Pool<T extends Disposable> {
     if (entry.isErr())
       return
 
-    return entry.get()
+    return entry.get().checkOrNull()
   }
 
   /**
@@ -331,6 +332,24 @@ export class Pool<T extends Disposable> {
       throw new EmptySlotError()
     if (entry.isErr())
       throw entry.getErr()
+
+    return entry.get().checkOrThrow()
+  }
+
+  getRandomOrThrow(): PoolItem<T> {
+    const entry = Arrays.random([...this.#allEntries.filter(x => x != null && x.isOk() && x.get().owned) as PoolOkEntry<T>[]])
+
+    if (entry == null)
+      throw new EmptyPoolError()
+
+    return entry.get()
+  }
+
+  getCryptoRandomOrThrow(): PoolItem<T> {
+    const entry = Arrays.cryptoRandom([...this.#allEntries.filter(x => x != null && x.isOk() && x.get().owned) as PoolOkEntry<T>[]])
+
+    if (entry == null)
+      throw new EmptyPoolError()
 
     return entry.get()
   }
@@ -356,66 +375,30 @@ export class Pool<T extends Disposable> {
     }
   }
 
-  // /**
-  //  * Get a random entry from the pool using Math's PRNG or throw if none available
-  //  * @returns 
-  //  */
-  // async getRandomOrThrow(signal = new AbortController().signal): Promise<PoolItem<T>> {
-  //   while (true) {
-  //     using rejectOnAbort = Signals.rejectOnAbort(signal)
-  //     const resolveOnFirst = Promise.any(this.#okPromises)
+  async getRandomOrWaitOrThrow(signal = new AbortController().signal): Promise<PoolOkEntry<T>> {
+    while (true) {
+      const entry = Arrays.random([...this.#allEntries.filter(x => x != null && x.isOk() && x.get().owned) as PoolOkEntry<T>[]])
 
-  //     await Promise.race([resolveOnFirst, rejectOnAbort.get()])
+      if (entry != null)
+        return entry
 
-  //     try {
-  //       return this.getRandomSyncOrThrow()
-  //     } catch (e: unknown) {
-  //       console.error(e)
-  //       continue
-  //     }
-  //   }
-  // }
+      await Plume.waitOrThrow(this.events, "ok", (f: Future<void>) => {
+        f.resolve()
+      }, signal)
+    }
+  }
 
-  // /**
-  //  * Get a random entry from the pool using Math's PRNG or throw if none available
-  //  * @returns 
-  //  */
-  // getRandomSyncOrThrow(): PoolItem<T> {
-  //   const entry = Arrays.random([...this.#allEntries.filter(x => x.isOk() && !x.get().borrowed) as PoolOkEntry<T>[]])
+  async getCryptoRandomOrWaitOrThrow(signal = new AbortController().signal): Promise<PoolOkEntry<T>> {
+    while (true) {
+      const entry = Arrays.cryptoRandom([...this.#allEntries.filter(x => x != null && x.isOk() && x.get().owned) as PoolOkEntry<T>[]])
 
-  //   if (entry == null)
-  //     throw new EmptyPoolError()
+      if (entry != null)
+        return entry
 
-  //   return entry.get()
-  // }
-
-  // /**
-  //  * Get a random entry from the pool using WebCrypto's CSPRNG or throw if none available
-  //  * @returns 
-  //  */
-  // async getCryptoRandomOrThrow(signal = new AbortController().signal): Promise<PoolItem<T>> {
-  //   while (true) {
-  //     await Plume.waitOrThrow(this.events, "created", (x, y) => x.resolve(y), signal)
-
-  //     try {
-  //       return this.getCryptoRandomSyncOrThrow()
-  //     } catch (e: unknown) {
-  //       continue
-  //     }
-  //   }
-  // }
-
-  // /**
-  //  * Get a random entry from the pool using WebCrypto's CSPRNG or throw if none available
-  //  * @returns 
-  //  */
-  // getCryptoRandomSyncOrThrow(): PoolItem<T> {
-  //   const entry = Arrays.cryptoRandom([...this.#okEntries])
-
-  //   if (entry == null)
-  //     throw new EmptyPoolError()
-
-  //   return entry.get()
-  // }
+      await Plume.waitOrThrow(this.events, "ok", (f: Future<void>) => {
+        f.resolve()
+      }, signal)
+    }
+  }
 
 }

@@ -24,7 +24,7 @@
   },
   "dependencies": {
     "@hazae41/arrays": "^1.1.5",
-    "@hazae41/box": "^2.2.0",
+    "@hazae41/box": "^2.2.1",
     "@hazae41/disposer": "^2.0.20",
     "@hazae41/future": "^2.0.1",
     "@hazae41/mutex": "^2.1.0",
