@@ -1,8 +1,9 @@
-import { Box, Stack } from "@hazae41/box";
+import { Box, Slot, Stack } from "@hazae41/box";
 import { Disposer } from "@hazae41/disposer";
-import { SuperEventTarget } from "@hazae41/plume";
+import { Future } from "@hazae41/future";
+import { Nullable } from "@hazae41/option";
+import { Plume, SuperEventTarget } from "@hazae41/plume";
 import { Catched, Err, Ok, Result } from "@hazae41/result";
-import { Signals } from "@hazae41/signals";
 
 export interface PoolCreatorParams {
   readonly index: number
@@ -105,9 +106,8 @@ export class PoolErrEntry<T> extends Err<Error> {
 }
 
 export type PoolEvents<T> = {
-  started: (index: number) => void
-  created: (entry: PoolEntry<T>) => void
-  deleted: (entry: PoolEntry<T>) => void
+  ok: (entry: PoolOkEntry<T>) => void
+  err: (entry: PoolErrEntry<T>) => void
 }
 
 export class EmptyPoolError extends Error {
@@ -140,11 +140,6 @@ export class Pool<T> {
   readonly #allAborters = new Array<AbortController>()
 
   /**
-   * Sparse entry promises by index
-   */
-  readonly #allPromises = new Array<Promise<PoolEntry<T>>>()
-
-  /**
    * Sparse entries by index
    */
   readonly #allEntries = new Array<PoolEntry<T>>()
@@ -172,44 +167,29 @@ export class Pool<T> {
     }
 
     this.#allAborters.length = 0
-    this.#allPromises.length = 0
     this.#allEntries.length = 0
   }
 
-  async #createOrThrow(index: number, creator: PoolCreator<T>, signal: AbortSignal): Promise<PoolEntry<T>> {
+  async #createOrThrow(index: number, creator: PoolCreator<T>, signal: AbortSignal): Promise<Result<Disposer<T>, Error>> {
     try {
-      using stack = new Box(new Stack())
+      using stack = new Slot(new Stack())
 
       const disposer = await creator({ index, signal })
 
-      stack.getOrThrow().push(disposer)
-      stack.getOrThrow().push(disposer.get())
+      stack.get().push(disposer)
+      stack.get().push(disposer.get())
 
       signal.throwIfAborted()
 
-      stack.moveOrThrow()
+      stack.set(new Stack())
 
-      this.delete(index)
-
-      const item = new PoolItem(this, index, disposer)
-      const entry = new PoolOkEntry(this, index, item)
-
-      this.#allEntries[index] = entry
-      this.#allPromises[index] = Promise.resolve(entry)
-
-      return entry
+      return new Ok(disposer)
     } catch (e: unknown) {
       signal.throwIfAborted()
 
-      this.delete(index)
-
       const value = Catched.wrap(e)
-      const entry = new PoolErrEntry(this, index, value)
 
-      this.#allEntries[index] = entry
-      this.#allPromises[index] = Promise.resolve(entry)
-
-      return entry
+      return new Err(value)
     }
   }
 
@@ -225,15 +205,9 @@ export class Pool<T> {
     this.#allAborters[index] = aborter
     const { signal } = aborter
 
-    const promise = this.#createOrThrow(index, creator, signal)
+    const result = await this.#createOrThrow(index, creator, signal)
 
-    this.#allPromises[index] = promise
-
-    await this.events.emit("started", index)
-
-    const entry = await promise
-
-    await this.events.emit("created", entry)
+    await this.setOrThrow(index, result)
   }
 
   /**
@@ -254,12 +228,7 @@ export class Pool<T> {
   cancel(index: number) {
     this.#allAborters.at(index)?.abort()
 
-    const promise = this.#allPromises.at(index)
-
     delete this.#allAborters[index]
-    delete this.#allPromises[index]
-
-    return promise
   }
 
   /**
@@ -294,9 +263,8 @@ export class Pool<T> {
       this.delete(index)
 
       this.#allEntries[index] = entry
-      this.#allPromises[index] = Promise.resolve(entry)
 
-      await this.events.emit("created", entry)
+      await this.events.emit("ok", entry)
 
       return entry
     } else {
@@ -306,44 +274,81 @@ export class Pool<T> {
       this.delete(index)
 
       this.#allEntries[index] = entry
-      this.#allPromises[index] = Promise.resolve(entry)
 
-      await this.events.emit("created", entry)
+      await this.events.emit("err", entry)
 
       return entry
     }
   }
 
   /**
-   * Get the entry at index or throw if not available
+   * Get the entry at index or null if nothing in there
    * @param index 
-   * @returns the entry at index
-   * @throws if empty
+   * @returns 
    */
-  async getOrThrow(index: number, signal = new AbortController().signal): Promise<PoolEntry<T>> {
-    const resolveOnEntry = this.#allPromises.at(index)
-
-    if (resolveOnEntry == null)
-      throw new EmptySlotError()
-
-    using rejectOnAbort = Signals.rejectOnAbort(signal)
-
-    return await Promise.race([resolveOnEntry, rejectOnAbort.get()])
+  getAnyOrNull(index: number): Nullable<PoolEntry<T>> {
+    return this.#allEntries.at(index)
   }
 
   /**
-   * Get the entry at index or throw if not available
+   * Get the entry at index or throw if nothing in there
    * @param index 
-   * @returns the entry at index
-   * @throws if empty
+   * @returns 
    */
-  getSyncOrThrow(index: number): PoolEntry<T> {
+  getAnyOrThrow(index: number): PoolEntry<T> {
     const entry = this.#allEntries.at(index)
 
     if (entry == null)
       throw new EmptySlotError()
 
     return entry
+  }
+
+  /**
+   * Get the item at index or null if errored or nothing in there
+   * @param index 
+   * @returns 
+   */
+  getOrNull(index: number): Nullable<PoolItem<T>> {
+    const entry = this.#allEntries.at(index)
+
+    if (entry == null)
+      return
+    if (entry.isErr())
+      return
+
+    return entry.get()
+  }
+
+  /**
+   * Get the item at index or throw if errored or nothing in there
+   * @param index 
+   * @returns 
+   */
+  getOrThrow(index: number): PoolItem<T> {
+    const entry = this.#allEntries.at(index)
+
+    if (entry == null)
+      throw new EmptySlotError()
+    if (entry.isErr())
+      throw entry.getErr()
+
+    return entry.get()
+  }
+
+  /**
+   * Get the item at index or wait for it
+   * @param index 
+   * @returns the entry at index
+   * @throws if empty
+   */
+  async getOrWaitOrThrow(index: number, signal = new AbortController().signal): Promise<PoolItem<T>> {
+    const entry = this.#allEntries.at(index)
+
+    if (entry != null && entry.isOk())
+      return entry.get()
+
+    return await Plume.waitOrThrow(this.events, "ok", (x: Future<PoolItem<T>>, y) => x.resolve(y.get()), signal)
   }
 
   // /**

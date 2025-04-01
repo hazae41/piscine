@@ -2,6 +2,7 @@ import "@hazae41/symbol-dispose-polyfill"
 
 import { Disposer } from "@hazae41/disposer"
 import { test } from "@hazae41/phobos"
+import { Ok } from "@hazae41/result"
 import { Pool } from "./index.js"
 
 test("pool", async ({ test }) => {
@@ -35,13 +36,18 @@ test("pool", async ({ test }) => {
     return entry
   })
 
-  // const fake = await create()
+  const fake = await create()
 
   pool.startOrThrow(0).catch(console.error)
-  await new Promise(ok => setTimeout(ok, 1000))
-  pool.startOrThrow(0).catch(console.error)
+  // await new Promise(ok => setTimeout(ok, 1000))
+  pool.setOrThrow(0, new Ok(fake)).catch(console.error)
+
+  const x = await pool.getOrWaitOrThrow(0)
+  console.log("x", x.getOrThrow().get())
 
   await new Promise(ok => setTimeout(ok, 5000))
+
+  console.log("ending")
 
   // const mutex = new Mutex(pool)
 
