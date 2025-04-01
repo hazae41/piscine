@@ -29,19 +29,13 @@ test("pool", async ({ test }) => {
     return new Disposer(value, onEntryClean)
   }
 
-  using pool = new Pool<Disposer<string>>(async (params) => {
-    const { index } = params
-
-    const entry = await create()
-
-    return entry
-  })
+  using pool = new Pool<Disposer<string>>()
 
   const fake0 = await create()
   const fake1 = await create()
 
-  pool.setOrThrow(0, new Ok(fake0))
-  pool.setOrThrow(1, new Ok(fake1))
+  pool.set(0, new Ok(fake0))
+  pool.set(1, new Ok(fake1))
 
   // borrow(pool.getOrThrow(0))
   // borrow(pool.getOrThrow(1))
