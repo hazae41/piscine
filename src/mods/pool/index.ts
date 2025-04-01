@@ -347,7 +347,11 @@ export class Pool<T> {
     if (entry != null && entry.isOk())
       return entry.get()
 
-    return await Plume.waitOrThrow(this.events, "ok", (x: Future<PoolItem<T>>, y) => x.resolve(y.get()), signal)
+    return await Plume.waitOrThrow(this.events, "ok", (f: Future<PoolItem<T>>, x) => {
+      if (x.index !== index)
+        return
+      f.resolve(x.get())
+    }, signal)
   }
 
   // /**
