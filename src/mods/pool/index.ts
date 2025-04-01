@@ -35,6 +35,42 @@ export class PoolItem<T extends Disposable> extends Box<T> {
     super(value)
   }
 
+  moveOrNull() {
+    const box = super.moveOrNull()
+
+    if (box == null)
+      return
+    this.pool.delete(this.index)
+
+    return box
+  }
+
+  moveOrThrow(): Box<T> {
+    const box = super.moveOrThrow()
+
+    this.pool.delete(this.index)
+
+    return box
+  }
+
+  returnOrThrow(): void {
+    super.returnOrThrow()
+
+    if (!this.owned)
+      return
+
+    const entry = this.pool.getAnyOrNull(this.index)
+
+    if (entry == null)
+      return
+    if (!entry.isOk())
+      return
+    if (entry.value !== this)
+      return
+
+    this.pool.events.emit("ok", entry).catch(console.error)
+  }
+
 }
 
 export class PoolOkEntry<T extends Disposable> extends Ok<PoolItem<T>> {
@@ -212,10 +248,10 @@ export class Pool<T extends Disposable> {
 
     const result = await this.#createOrThrow(index, creator, signal)
 
-    return await this.setOrThrow(index, result)
+    return this.setOrThrow(index, result)
   }
 
-  async setOrThrow(index: number, result: Result<Disposer<T>, Error>) {
+  setOrThrow(index: number, result: Result<Disposer<T>, Error>) {
     if (result.isOk()) {
       const value = result.get().get()
       const clean = new Deferred(() => result.get()[Symbol.dispose]())
@@ -227,7 +263,7 @@ export class Pool<T extends Disposable> {
 
       this.#allEntries[index] = entry
 
-      await this.events.emit("ok", entry)
+      this.events.emit("ok", entry).catch(console.error)
 
       return entry
     } else {
@@ -238,7 +274,7 @@ export class Pool<T extends Disposable> {
 
       this.#allEntries[index] = entry
 
-      await this.events.emit("err", entry)
+      this.events.emit("err", entry).catch(console.error)
 
       return entry
     }
@@ -272,7 +308,7 @@ export class Pool<T extends Disposable> {
    * @param index 
    * @returns 
    */
-  getOrNull(index: number): Nullable<PoolOkEntry<T>> {
+  getOrNull(index: number): Nullable<PoolItem<T>> {
     const entry = this.#allEntries.at(index)
 
     if (entry == null)
@@ -280,7 +316,7 @@ export class Pool<T extends Disposable> {
     if (entry.isErr())
       return
 
-    return entry
+    return entry.get()
   }
 
   /**
@@ -288,7 +324,7 @@ export class Pool<T extends Disposable> {
    * @param index 
    * @returns 
    */
-  getOrThrow(index: number): PoolOkEntry<T> {
+  getOrThrow(index: number): PoolItem<T> {
     const entry = this.#allEntries.at(index)
 
     if (entry == null)
@@ -296,7 +332,7 @@ export class Pool<T extends Disposable> {
     if (entry.isErr())
       throw entry.getErr()
 
-    return entry
+    return entry.get()
   }
 
   /**
@@ -316,32 +352,6 @@ export class Pool<T extends Disposable> {
         return
       f.resolve(x)
     }, signal)
-  }
-
-  moveOrThrow(index: number): Box<T> {
-    const entry = this.#allEntries.at(index)
-
-    if (entry == null)
-      throw new EmptySlotError()
-    if (entry.isErr())
-      throw entry.getErr()
-
-    const value = entry.get().moveOrThrow()
-
-    this.delete(index)
-
-    return value
-  }
-
-  borrowOrThrow(index: number) {
-    const entry = this.#allEntries.at(index)
-
-    if (entry == null)
-      throw new EmptySlotError()
-    if (entry.isErr())
-      throw entry.getErr()
-
-    return entry.get().borrowOrThrow()
   }
 
   // /**
