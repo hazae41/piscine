@@ -25,68 +25,12 @@ export type PoolEntry<T> =
 * - borrowed
 */
 
-export class PoolItem<T> extends Box<T> {
+export class PoolOkEntry<T> extends Ok<Disposer<Box<T>>> {
 
   constructor(
     readonly pool: Pool<T>,
     readonly index: number,
-    readonly value: Disposer<T>
-  ) {
-    super(value.get())
-  }
-
-  // moveOrNull(): Nullable<Box<T>> {
-  //   const box = this.moveOrNull()
-  //   this.pool.restart(this.index)
-  //   return box
-  // }
-
-  // moveOrThrow(): Box<T> {
-  //   const box = this.moveOrThrow()
-  //   this.pool.restart(this.index)
-  //   return box
-  // }
-
-  // unwrapOrNull(): Nullable<T> {
-  //   const value = this.unwrapOrNull()
-  //   this.pool.restart(this.index)
-  //   return value
-  // }
-
-  // unwrapOrThrow(): T {
-  //   const value = this.unwrapOrThrow()
-  //   this.pool.restart(this.index)
-  //   return value
-  // }
-
-  // borrowOrNull(): Nullable<Borrow<T>> {
-  //   const borrow = this.borrowOrNull()
-  //   this.pool.pauseOrThrow(this.index)
-  //   return borrow
-  // }
-
-  // borrowOrThrow(): Borrow<T> {
-  //   const borrow = this.borrowOrThrow()
-  //   this.pool.pauseOrThrow(this.index)
-  //   return borrow
-  // }
-
-  // returnOrThrow(): void {
-  //   this.returnOrThrow()
-
-  //   this.pool.unpauseOrThrow(this.index)
-
-  //   return
-  // }
-
-}
-
-export class PoolOkEntry<T> extends Ok<PoolItem<T>> {
-
-  constructor(
-    readonly pool: Pool<T>,
-    readonly index: number,
-    readonly value: PoolItem<T>
+    readonly value: Disposer<Box<T>>
   ) {
     super(value)
   }
@@ -154,16 +98,21 @@ export class Pool<T> {
   ) { }
 
   [Symbol.dispose]() {
-    for (const aborter of this.#allAborters)
-      aborter?.abort()
+    for (const aborter of this.#allAborters) {
+      if (aborter == null)
+        continue
+      aborter.abort()
+    }
 
     for (const entry of this.#allEntries) {
+      if (entry == null)
+        continue
       if (!entry.isOk())
         continue
       using stack = new Stack()
 
-      stack.push(entry.get().value)
       stack.push(entry.get())
+      stack.push(entry.get().get())
     }
 
     this.#allAborters.length = 0
@@ -207,8 +156,8 @@ export class Pool<T> {
 
     using stack = new Stack()
 
-    stack.push(previous.get().value)
     stack.push(previous.get())
+    stack.push(previous.get().get())
 
     return previous
   }
@@ -255,9 +204,11 @@ export class Pool<T> {
 
   async setOrThrow(index: number, result: Result<Disposer<T>, Error>) {
     if (result.isOk()) {
-      const disposer = result.get()
-      const item = new PoolItem(this, index, disposer)
-      const entry = new PoolOkEntry(this, index, item)
+      const boxed = new Box(result.get().get())
+      const clean = () => result.get()[Symbol.dispose]()
+
+      const value = new Disposer(boxed, clean)
+      const entry = new PoolOkEntry(this, index, value)
 
       this.delete(index)
 
@@ -308,7 +259,7 @@ export class Pool<T> {
    * @param index 
    * @returns 
    */
-  getOrNull(index: number): Nullable<PoolItem<T>> {
+  getOrNull(index: number): Nullable<PoolOkEntry<T>> {
     const entry = this.#allEntries.at(index)
 
     if (entry == null)
@@ -316,7 +267,7 @@ export class Pool<T> {
     if (entry.isErr())
       return
 
-    return entry.get()
+    return entry
   }
 
   /**
@@ -324,7 +275,7 @@ export class Pool<T> {
    * @param index 
    * @returns 
    */
-  getOrThrow(index: number): PoolItem<T> {
+  getOrThrow(index: number): PoolOkEntry<T> {
     const entry = this.#allEntries.at(index)
 
     if (entry == null)
@@ -332,7 +283,7 @@ export class Pool<T> {
     if (entry.isErr())
       throw entry.getErr()
 
-    return entry.get()
+    return entry
   }
 
   /**
@@ -341,18 +292,55 @@ export class Pool<T> {
    * @returns the entry at index
    * @throws if empty
    */
-  async getOrWaitOrThrow(index: number, signal = new AbortController().signal): Promise<PoolItem<T>> {
+  async getOrWaitOrThrow(index: number, signal = new AbortController().signal): Promise<PoolOkEntry<T>> {
     const entry = this.#allEntries.at(index)
 
     if (entry != null && entry.isOk())
-      return entry.get()
+      return entry
 
-    return await Plume.waitOrThrow(this.events, "ok", (f: Future<PoolItem<T>>, x) => {
+    return await Plume.waitOrThrow(this.events, "ok", (f: Future<PoolOkEntry<T>>, x) => {
       if (x.index !== index)
         return
-      f.resolve(x.get())
+      f.resolve(x)
     }, signal)
   }
+
+  moveOrThrow(index: number): Box<T> {
+    const entry = this.#allEntries.at(index)
+
+    if (entry == null)
+      throw new EmptySlotError()
+    if (entry.isErr())
+      throw entry.getErr()
+
+    const value = entry.get().get().moveOrThrow()
+
+    this.delete(index)
+
+    return value
+  }
+
+  // borrowOrThrow(index: number) {
+  //   const entry = this.#allEntries.at(index)
+
+  //   if (entry == null)
+  //     throw new EmptySlotError()
+  //   if (entry.isErr())
+  //     throw entry.getErr()
+
+  //   const value = entry.get().get().borrowOrThrow()
+  // }
+
+  // returnOrThrow(index: number) {
+  //   const entry = this.#allEntries.at(index)
+
+  //   if (entry == null)
+  //     throw new EmptySlotError()
+  //   if (entry.isErr())
+  //     throw entry.getErr()
+
+  //   return entry.get().get().returnOrThrow()
+  // }
 
   // /**
   //  * Get a random entry from the pool using Math's PRNG or throw if none available
