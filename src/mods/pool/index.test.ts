@@ -1,5 +1,6 @@
 import "@hazae41/symbol-dispose-polyfill"
 
+import { Box } from "@hazae41/box"
 import { Disposer } from "@hazae41/disposer"
 import { test } from "@hazae41/phobos"
 import { Ok } from "@hazae41/result"
@@ -38,16 +39,20 @@ test("pool", async ({ test }) => {
 
   const fake = await create()
 
-  // pool.startOrThrow(0).catch(console.error)
-  // await new Promise(ok => setTimeout(ok, 1000))
   pool.setOrThrow(0, new Ok(fake))
 
-  using x = pool.getOrThrow(0).borrowOrThrow()
+  borrow(pool.getOrThrow(0))
 
-  console.log("x", x.getOrThrow().get())
-  console.log("0", pool.getAnyOrNull(0) != null)
+  async function borrow(box: Box<Disposer<string>>) {
+    using borrow = box.borrowOrThrow()
+    console.log("borrowed", borrow.getOrThrow().get())
+    await new Promise(ok => setTimeout(ok, 1000))
+  }
 
-  pool.delete(0)
+  console.log("waiting for entry")
+  const x = await pool.getOrWaitOrThrow(0)
+
+  console.log("got", x.getOrThrow().getOrThrow().get())
 
   await new Promise(ok => setTimeout(ok, 5000))
 

@@ -344,7 +344,7 @@ export class Pool<T extends Disposable> {
   async getOrWaitOrThrow(index: number, signal = new AbortController().signal): Promise<PoolOkEntry<T>> {
     const entry = this.#allEntries.at(index)
 
-    if (entry != null && entry.isOk())
+    if (entry != null && entry.isOk() && entry.value.owned)
       return entry
 
     return await Plume.waitOrThrow(this.events, "ok", (f: Future<PoolOkEntry<T>>, x) => {
