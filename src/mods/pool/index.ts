@@ -1,4 +1,4 @@
-import { Box, Stack } from "@hazae41/box";
+import { Box, Deferred, Stack } from "@hazae41/box";
 import { Disposer } from "@hazae41/disposer";
 import { Future } from "@hazae41/future";
 import { Nullable } from "@hazae41/option";
@@ -25,12 +25,25 @@ export type PoolEntry<T extends Disposable> =
 * - borrowed
 */
 
-export class PoolOkEntry<T extends Disposable> extends Ok<Disposer<Box<T>>> {
+export class PoolItem<T extends Disposable> extends Box<T> {
 
   constructor(
     readonly pool: Pool<T>,
     readonly index: number,
-    readonly value: Disposer<Box<T>>
+    readonly value: T
+  ) {
+    super(value)
+  }
+
+}
+
+export class PoolOkEntry<T extends Disposable> extends Ok<PoolItem<T>> {
+
+  constructor(
+    readonly pool: Pool<T>,
+    readonly index: number,
+    readonly value: PoolItem<T>,
+    readonly clean: Deferred
   ) {
     super(value)
   }
@@ -111,8 +124,8 @@ export class Pool<T extends Disposable> {
         continue
       using stack = new Stack()
 
-      stack.push(entry.get())
-      stack.push(entry.get().get())
+      stack.push(entry.value)
+      stack.push(entry.clean)
     }
 
     this.#allAborters.length = 0
@@ -156,8 +169,8 @@ export class Pool<T extends Disposable> {
 
     using stack = new Stack()
 
-    stack.push(previous.get())
-    stack.push(previous.get().get())
+    stack.push(previous.value)
+    stack.push(previous.clean)
 
     return previous
   }
@@ -204,11 +217,11 @@ export class Pool<T extends Disposable> {
 
   async setOrThrow(index: number, result: Result<Disposer<T>, Error>) {
     if (result.isOk()) {
-      const boxed = new Box(result.get().get())
-      const clean = () => result.get()[Symbol.dispose]()
+      const value = result.get().get()
+      const clean = new Deferred(() => result.get()[Symbol.dispose]())
 
-      const value = new Disposer(boxed, clean)
-      const entry = new PoolOkEntry(this, index, value)
+      const item = new PoolItem(this, index, value)
+      const entry = new PoolOkEntry(this, index, item, clean)
 
       this.delete(index)
 
@@ -313,7 +326,7 @@ export class Pool<T extends Disposable> {
     if (entry.isErr())
       throw entry.getErr()
 
-    const value = entry.get().get().moveOrThrow()
+    const value = entry.get().moveOrThrow()
 
     this.delete(index)
 
@@ -328,7 +341,7 @@ export class Pool<T extends Disposable> {
     if (entry.isErr())
       throw entry.getErr()
 
-    return entry.get().get().borrowOrThrow()
+    return entry.get().borrowOrThrow()
   }
 
   // /**
