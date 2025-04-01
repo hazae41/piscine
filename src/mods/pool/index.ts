@@ -146,7 +146,7 @@ export class Pool<T extends Disposable> {
   }
 
   /**
-   * Delete stale entry
+   * Delete the entry at the given index and return it
    * @param index 
    * @returns 
    */
@@ -168,6 +168,12 @@ export class Pool<T extends Disposable> {
     return previous
   }
 
+  /**
+   * Set the entry at the given index and return it
+   * @param index 
+   * @param result 
+   * @returns 
+   */
   set(index: number, result: Result<Disposer<T>, Error>) {
     if (result.isOk()) {
       const value = result.get().get()
@@ -198,7 +204,7 @@ export class Pool<T extends Disposable> {
   }
 
   /**
-   * Get the entry at index or null if nothing in there
+   * Get the entry at the given index or null if empty
    * @param index 
    * @returns 
    */
@@ -207,7 +213,7 @@ export class Pool<T extends Disposable> {
   }
 
   /**
-   * Get the entry at index or throw if nothing in there
+   * Get the entry at the given index or throw if empty
    * @param index 
    * @returns 
    */
@@ -221,7 +227,7 @@ export class Pool<T extends Disposable> {
   }
 
   /**
-   * Get the item at index or null if errored or nothing in there
+   * Get the item at the given index or null if not available
    * @param index 
    * @returns 
    */
@@ -237,7 +243,7 @@ export class Pool<T extends Disposable> {
   }
 
   /**
-   * Get the item at index or throw if errored or nothing in there
+   * Get the item at the given index or throw if not available
    * @param index 
    * @returns 
    */
@@ -252,6 +258,10 @@ export class Pool<T extends Disposable> {
     return entry.get().checkOrThrow()
   }
 
+  /**
+   * Get a random item or throw if none available
+   * @returns 
+   */
   getRandomOrThrow(): PoolItem<T> {
     const entry = Arrays.random([...this.#entries.filter(x => x != null && x.isOk() && x.get().owned) as PoolOkEntry<T>[]])
 
@@ -261,6 +271,10 @@ export class Pool<T extends Disposable> {
     return entry.get()
   }
 
+  /**
+   * Get a crypto-random item or throw if none available
+   * @returns 
+   */
   getCryptoRandomOrThrow(): PoolItem<T> {
     const entry = Arrays.cryptoRandom([...this.#entries.filter(x => x != null && x.isOk() && x.get().owned) as PoolOkEntry<T>[]])
 
@@ -271,7 +285,7 @@ export class Pool<T extends Disposable> {
   }
 
   /**
-   * Get the owned item at index or wait for it
+   * Get the item at the given index or wait for it to be available
    * @param index 
    * @returns the entry at index
    * @throws if empty
@@ -291,6 +305,11 @@ export class Pool<T extends Disposable> {
     }
   }
 
+  /**
+   * Get a random item or wait for one to be available
+   * @param signal 
+   * @returns 
+   */
   async getRandomOrWaitOrThrow(signal = new AbortController().signal): Promise<PoolOkEntry<T>> {
     while (true) {
       const entry = Arrays.random([...this.#entries.filter(x => x != null && x.isOk() && x.get().owned) as PoolOkEntry<T>[]])
@@ -304,6 +323,11 @@ export class Pool<T extends Disposable> {
     }
   }
 
+  /**
+   * Get a crypto-random item or wait for one to be available
+   * @param signal 
+   * @returns 
+   */
   async getCryptoRandomOrWaitOrThrow(signal = new AbortController().signal): Promise<PoolOkEntry<T>> {
     while (true) {
       const entry = Arrays.cryptoRandom([...this.#entries.filter(x => x != null && x.isOk() && x.get().owned) as PoolOkEntry<T>[]])
@@ -375,12 +399,12 @@ export class Starter<T extends Disposable> extends Pool<T> {
   }
 
   /**
-   * Start the index
+   * Start the given index
    * @param index 
    * @returns 
    */
-  async start(index: number, creator: PoolCreator<T> = this.creator) {
-    this.cancel(index)
+  start(index: number, creator: PoolCreator<T> = this.creator) {
+    this.abort(index)
 
     const aborter = new AbortController()
     this.#aborters[index] = aborter
@@ -390,11 +414,11 @@ export class Starter<T extends Disposable> extends Pool<T> {
   }
 
   /**
-   * Cancel the index
+   * Abort the given index
    * @param index 
    * @returns 
    */
-  cancel(index: number) {
+  abort(index: number) {
     this.#aborters.at(index)?.abort()
 
     delete this.#aborters[index]
