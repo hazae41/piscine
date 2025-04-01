@@ -1,4 +1,4 @@
-import { Box, Slot, Stack } from "@hazae41/box";
+import { Box, Stack } from "@hazae41/box";
 import { Disposer } from "@hazae41/disposer";
 import { Future } from "@hazae41/future";
 import { Nullable } from "@hazae41/option";
@@ -164,16 +164,16 @@ export class Pool<T extends Disposable> {
 
   async #createOrThrow(index: number, creator: PoolCreator<T>, signal: AbortSignal): Promise<Result<Disposer<T>, Error>> {
     try {
-      using stack = new Slot(new Stack())
-
       const disposer = await creator({ index, signal })
 
-      stack.get().push(disposer)
-      stack.get().push(disposer.get())
+      using stack = new Stack()
+
+      stack.push(disposer)
+      stack.push(disposer.get())
 
       signal.throwIfAborted()
 
-      stack.set(new Stack())
+      stack.array.length = 0
 
       return new Ok(disposer)
     } catch (e: unknown) {
