@@ -336,22 +336,24 @@ export class Pool<T extends Disposable> {
   }
 
   /**
-   * Get the item at index or wait for it
+   * Get the owned item at index or wait for it
    * @param index 
    * @returns the entry at index
    * @throws if empty
    */
   async getOrWaitOrThrow(index: number, signal = new AbortController().signal): Promise<PoolOkEntry<T>> {
-    const entry = this.#allEntries.at(index)
+    while (true) {
+      const entry = this.#allEntries.at(index)
 
-    if (entry != null && entry.isOk() && entry.value.owned)
-      return entry
+      if (entry != null && entry.isOk() && entry.value.owned)
+        return entry
 
-    return await Plume.waitOrThrow(this.events, "ok", (f: Future<PoolOkEntry<T>>, x) => {
-      if (x.index !== index)
-        return
-      f.resolve(x)
-    }, signal)
+      await Plume.waitOrThrow(this.events, "ok", (f: Future<void>, x) => {
+        if (x.index !== index)
+          return
+        f.resolve()
+      }, signal)
+    }
   }
 
   // /**
