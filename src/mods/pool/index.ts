@@ -170,6 +170,49 @@ export class Pool<T> {
     this.#allEntries.length = 0
   }
 
+  /**
+   * Delete and cancel entry
+   * @param index 
+   */
+  clean(index: number) {
+    this.cancel(index)
+    this.delete(index)
+  }
+
+  /**
+   * Cancel pending entry
+   * @param index 
+   * @returns 
+   */
+  cancel(index: number) {
+    this.#allAborters.at(index)?.abort()
+
+    delete this.#allAborters[index]
+  }
+
+  /**
+   * Delete stale entry
+   * @param index 
+   * @returns 
+   */
+  delete(index: number) {
+    const previous = this.#allEntries.at(index)
+
+    delete this.#allEntries[index]
+
+    if (previous == null)
+      return
+    if (!previous.isOk())
+      return previous
+
+    using stack = new Stack()
+
+    stack.push(previous.get().value)
+    stack.push(previous.get())
+
+    return previous
+  }
+
   async #createOrThrow(index: number, creator: PoolCreator<T>, signal: AbortSignal): Promise<Result<Disposer<T>, Error>> {
     try {
       using stack = new Slot(new Stack())
@@ -207,51 +250,7 @@ export class Pool<T> {
 
     const result = await this.#createOrThrow(index, creator, signal)
 
-    await this.setOrThrow(index, result)
-  }
-
-  /**
-   * Delete and cancel entry
-   * @param index 
-   */
-  clean(index: number) {
-    this.cancel(index)
-    this.delete(index)
-  }
-
-
-  /**
-   * Cancel pending entry
-   * @param index 
-   * @returns 
-   */
-  cancel(index: number) {
-    this.#allAborters.at(index)?.abort()
-
-    delete this.#allAborters[index]
-  }
-
-  /**
-   * Delete stale entry
-   * @param index 
-   * @returns 
-   */
-  delete(index: number) {
-    const previous = this.#allEntries.at(index)
-
-    delete this.#allEntries[index]
-
-    if (previous == null)
-      return
-    if (!previous.isOk())
-      return previous
-
-    using stack = new Stack()
-
-    stack.push(previous.get().value)
-    stack.push(previous.get())
-
-    return previous
+    return await this.setOrThrow(index, result)
   }
 
   async setOrThrow(index: number, result: Result<Disposer<T>, Error>) {
