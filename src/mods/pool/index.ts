@@ -18,14 +18,6 @@ export type PoolEntry<T extends Disposable> =
   | PoolOkEntry<T>
   | PoolErrEntry<T>
 
-/**
-* - empty (undefined)
-* - creating (promise)
-* - created (ok)
-* - errored (err)
-* - borrowed
-*/
-
 export class PoolItem<T extends Disposable> extends Box<T> {
 
   constructor(
