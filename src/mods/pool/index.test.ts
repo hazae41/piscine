@@ -42,10 +42,12 @@ test("pool", async ({ test }) => {
   // await new Promise(ok => setTimeout(ok, 1000))
   pool.setOrThrow(0, new Ok(fake)).catch(console.error)
 
-  using x = pool.moveOrThrow(0)
-  console.log("x", x.getOrThrow().get())
+  using x = pool.borrowOrThrow(0)
 
-  console.log("0", pool.getAnyOrNull(0))
+  console.log("x", x.getOrThrow().get())
+  console.log("0", pool.getAnyOrNull(0) != null)
+
+  pool.delete(0)
 
   await new Promise(ok => setTimeout(ok, 5000))
 

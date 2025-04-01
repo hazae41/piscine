@@ -13,7 +13,7 @@ export interface PoolCreatorParams {
 export type PoolCreator<T> =
   (params: PoolCreatorParams) => Promise<Disposer<T>>
 
-export type PoolEntry<T> =
+export type PoolEntry<T extends Disposable> =
   | PoolOkEntry<T>
   | PoolErrEntry<T>
 
@@ -25,7 +25,7 @@ export type PoolEntry<T> =
 * - borrowed
 */
 
-export class PoolOkEntry<T> extends Ok<Disposer<Box<T>>> {
+export class PoolOkEntry<T extends Disposable> extends Ok<Disposer<Box<T>>> {
 
   constructor(
     readonly pool: Pool<T>,
@@ -37,7 +37,7 @@ export class PoolOkEntry<T> extends Ok<Disposer<Box<T>>> {
 
 }
 
-export class PoolErrEntry<T> extends Err<Error> {
+export class PoolErrEntry<T extends Disposable> extends Err<Error> {
 
   constructor(
     readonly pool: Pool<T>,
@@ -49,7 +49,7 @@ export class PoolErrEntry<T> extends Err<Error> {
 
 }
 
-export type PoolEvents<T> = {
+export type PoolEvents<T extends Disposable> = {
   ok: (entry: PoolOkEntry<T>) => void
   err: (entry: PoolErrEntry<T>) => void
 }
@@ -74,7 +74,7 @@ export class EmptySlotError extends Error {
 
 }
 
-export class Pool<T> {
+export class Pool<T extends Disposable> {
 
   readonly events = new SuperEventTarget<PoolEvents<T>>()
 
@@ -320,27 +320,16 @@ export class Pool<T> {
     return value
   }
 
-  // borrowOrThrow(index: number) {
-  //   const entry = this.#allEntries.at(index)
+  borrowOrThrow(index: number) {
+    const entry = this.#allEntries.at(index)
 
-  //   if (entry == null)
-  //     throw new EmptySlotError()
-  //   if (entry.isErr())
-  //     throw entry.getErr()
+    if (entry == null)
+      throw new EmptySlotError()
+    if (entry.isErr())
+      throw entry.getErr()
 
-  //   const value = entry.get().get().borrowOrThrow()
-  // }
-
-  // returnOrThrow(index: number) {
-  //   const entry = this.#allEntries.at(index)
-
-  //   if (entry == null)
-  //     throw new EmptySlotError()
-  //   if (entry.isErr())
-  //     throw entry.getErr()
-
-  //   return entry.get().get().returnOrThrow()
-  // }
+    return entry.get().get().borrowOrThrow()
+  }
 
   // /**
   //  * Get a random entry from the pool using Math's PRNG or throw if none available
