@@ -1,12 +1,68 @@
 import "@hazae41/symbol-dispose-polyfill"
 
-import { Box, Disposer, Stack } from "@hazae41/box"
+import { Disposer, Stack } from "@hazae41/box"
 import { test } from "@hazae41/phobos"
 import { Catched, Err, Ok } from "@hazae41/result"
-import { Pool } from "./index.js"
+import { Pending, Pool, PoolOkEntry, Settled, X } from "./index.js"
 
-test("basic", async ({ test }) => {
-  async function create() {
+// test("basic", async ({ test }) => {
+//   async function create() {
+//     const uuid = crypto.randomUUID() as string
+
+//     console.log("creating", uuid)
+
+//     await new Promise(ok => setTimeout(ok, 1000))
+
+//     const onValueClean = () => {
+//       console.log("cleaning value", uuid)
+//     }
+
+//     const onEntryClean = () => {
+//       console.log("cleaning entry", uuid)
+//     }
+
+//     const value = Disposer.wrap(uuid, onValueClean)
+
+//     console.log("created", uuid)
+
+//     return Disposer.wrap(value, onEntryClean)
+//   }
+
+//   using pool = new Pool<Disposer<string>>()
+
+//   const fake0 = await create()
+//   const fake1 = await create()
+
+//   pool.set(0, new Ok(fake0))
+//   pool.set(1, new Ok(fake1))
+
+//   // borrow(pool.getOrThrow(0))
+//   // borrow(pool.getOrThrow(1))
+
+//   async function borrow(box: Box<Disposer<string>>) {
+//     using borrow = box.borrowOrThrow()
+//     console.log("borrowed", borrow.getOrThrow().get())
+//     await new Promise(ok => setTimeout(ok, 1000))
+//   }
+
+//   console.log("waiting for any entry")
+
+//   const item = await pool.getRandomOrWaitOrThrow()
+//   const view = item.getOrThrow()
+
+//   console.log("got", view.get())
+
+//   await new Promise(ok => setTimeout(ok, 5000))
+
+//   console.log("ending")
+// })
+
+test("complex", async ({ test }) => {
+  type T = Disposer<string>
+
+  using pool = new Pool<X<Disposer<string>>>()
+
+  async function create(signal: AbortSignal) {
     const uuid = crypto.randomUUID() as string
 
     console.log("creating", uuid)
@@ -21,120 +77,14 @@ test("basic", async ({ test }) => {
       console.log("cleaning entry", uuid)
     }
 
-    const value = Disposer.with(uuid, onValueClean)
+    const value = Disposer.wrap(uuid, onValueClean)
 
     console.log("created", uuid)
 
-    return Disposer.with(value, onEntryClean)
+    return Disposer.wrap(value, onEntryClean)
   }
 
-  using pool = new Pool<Disposer<string>>()
-
-  const fake0 = await create()
-  const fake1 = await create()
-
-  pool.set(0, new Ok(fake0))
-  pool.set(1, new Ok(fake1))
-
-  // borrow(pool.getOrThrow(0))
-  // borrow(pool.getOrThrow(1))
-
-  async function borrow(box: Box<Disposer<string>>) {
-    using borrow = box.borrowOrThrow()
-    console.log("borrowed", borrow.getOrThrow().get())
-    await new Promise(ok => setTimeout(ok, 1000))
-  }
-
-  console.log("waiting for any entry")
-
-  const item = await pool.getRandomOrWaitOrThrow()
-  const view = item.getOrThrow()
-
-  console.log("got", view.get())
-
-  await new Promise(ok => setTimeout(ok, 5000))
-
-  console.log("ending")
-})
-
-export type X<T extends Disposable> =
-  | Pending<T>
-  | Settled<T>
-export class Pending<T extends Disposable> {
-  constructor(
-    readonly promise: PromiseLike<T>,
-    readonly aborter: AbortController
-  ) { }
-
-  [Symbol.dispose]() {
-    this.aborter.abort()
-  }
-
-  await() {
-    return this.promise
-  }
-
-  isPending(): this is Pending<T> {
-    return true
-  }
-
-  isSettled(): false {
-    return false
-  }
-
-}
-
-export class Settled<T extends Disposable> {
-
-  constructor(
-    readonly value: T
-  ) { }
-
-  [Symbol.dispose]() {
-    this.value[Symbol.dispose]()
-  }
-
-  await() {
-    return this.value
-  }
-
-  isPending(): false {
-    return false
-  }
-
-  isSettled(): this is Settled<T> {
-    return true
-  }
-}
-
-test("complex", async ({ test }) => {
-  type T = Disposer<string>
-
-  using pool = new Pool<X<Disposer<string>>>()
-
-  async function create(uuid: string, signal: AbortSignal) {
-    console.log("creating", uuid)
-
-    await new Promise(ok => setTimeout(ok, 1000))
-
-    const onValueClean = () => {
-      console.log("cleaning value", uuid)
-    }
-
-    const onEntryClean = () => {
-      console.log("cleaning entry", uuid)
-    }
-
-    const value = Disposer.with(uuid, onValueClean)
-
-    console.log("created", uuid)
-
-    return Disposer.with(value, onEntryClean)
-  }
-
-  async function apply(index: number, pending: Pending<Disposer<T>>) {
-    const { promise, aborter } = pending
-
+  async function wait(index: number, promise: Promise<Disposer<T>>, signal: AbortSignal) {
     try {
       const disposer = await promise
 
@@ -143,45 +93,47 @@ test("complex", async ({ test }) => {
       stack.push(disposer)
       stack.push(disposer.get())
 
-      if (aborter.signal.aborted)
-        return
+      signal.throwIfAborted()
 
       stack.array.length = 0
 
       const wrapped = new Settled(disposer.value)
       const dmapped = new Disposer(wrapped, disposer.clean)
 
-      pool.set(index, new Ok(dmapped))
+      const entry = pool.set(index, new Ok(dmapped)) as PoolOkEntry<Settled<T>>
+
+      return entry.get()
     } catch (e: unknown) {
-      if (aborter.signal.aborted)
-        return
+      signal.throwIfAborted()
 
       const value = Catched.wrap(e)
 
       pool.set(index, new Err(value))
+
+      throw e
     }
   }
 
   async function launch(index: number, create: (signal: AbortSignal) => Promise<Disposer<T>>) {
     pool.delete(index)
 
-    const uuid = crypto.randomUUID() as string
-
-    console.log("launching", uuid)
+    console.log("launching", index)
 
     const aborter = new AbortController()
     const { signal } = aborter
 
-    const promise = create(signal)
+    const promise = wait(index, create(signal), signal)
     const pending = new Pending(promise, aborter)
 
-    apply(index, pending)
+    pool.set(index, new Ok(Disposer.wrap(pending)))
 
-    const empty = Disposer.wrap(pending)
-
-    pool.set(index, new Ok(empty))
+    return await promise
   }
 
-  const x = pool.getOrThrow(0).getOrThrow()
+  launch(0, create)
+
+  const x = pool.getOrThrow(0)
+  console.log("x", x)
   const y = await x.await()
+  console.log("y", y)
 })

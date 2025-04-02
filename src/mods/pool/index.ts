@@ -17,6 +17,50 @@ export type PoolEntry<T extends Disposable> =
   | PoolOkEntry<T>
   | PoolErrEntry<T>
 
+export type X<T extends Disposable> =
+  | Pending<T>
+  | Settled<T>
+export class Pending<T extends Disposable> {
+
+  constructor(
+    readonly promise: PromiseLike<PoolItem<Settled<T>>>,
+    readonly aborter: AbortController
+  ) { }
+
+  [Symbol.dispose]() {
+    this.aborter.abort()
+  }
+
+  isPending(): this is Pending<T> {
+    return true
+  }
+
+  isSettled(): false {
+    return false
+  }
+
+}
+
+export class Settled<T extends Disposable> {
+
+  constructor(
+    readonly value: T
+  ) { }
+
+  [Symbol.dispose]() {
+    this.value[Symbol.dispose]()
+  }
+
+  isPending(): false {
+    return false
+  }
+
+  isSettled(): this is Settled<T> {
+    return true
+  }
+
+}
+
 export class PoolItem<T extends Disposable> extends Box<T> {
 
   constructor(
@@ -25,6 +69,12 @@ export class PoolItem<T extends Disposable> extends Box<T> {
     readonly value: T
   ) {
     super(value)
+  }
+
+  async await<U extends Disposable>(this: PoolItem<X<U>>) {
+    if (this.value.isSettled())
+      return this as PoolItem<Settled<U>>
+    return await this.value.promise
   }
 
   moveOrNull() {
