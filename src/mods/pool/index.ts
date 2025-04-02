@@ -345,7 +345,7 @@ export class Pool<T extends Disposable> {
 
 }
 
-export class Starter<T extends Disposable> extends Pool<T> {
+export class StartPool<T extends Disposable> extends Pool<T> {
 
   readonly events = new SuperEventTarget<PoolEvents<T>>()
 
@@ -424,6 +424,22 @@ export class Starter<T extends Disposable> extends Pool<T> {
       aborter.abort()
 
     delete this.#aborters[index]
+  }
+
+}
+
+export class AutoPool<T extends Disposable> extends StartPool<T> {
+
+  constructor(
+    readonly creator: PoolCreator<T>,
+    readonly capacity: number
+  ) {
+    super()
+
+    for (let i = 0; i < capacity; i++)
+      this.start(i, creator)
+
+    return this
   }
 
 }
