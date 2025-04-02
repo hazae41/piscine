@@ -355,13 +355,9 @@ export class Starter<T extends Disposable> extends Pool<T> {
   readonly #aborters = new Array<AbortController>()
 
   /**
-   * A pool of circuits
-   * @param tor 
-   * @param params 
+   * A pool able to start items
    */
-  constructor(
-    readonly creator: PoolCreator<T>
-  ) {
+  constructor() {
     super()
   }
 
@@ -369,6 +365,7 @@ export class Starter<T extends Disposable> extends Pool<T> {
     for (const aborter of this.#aborters) {
       if (aborter == null)
         continue
+
       aborter.abort()
     }
 
@@ -405,7 +402,7 @@ export class Starter<T extends Disposable> extends Pool<T> {
    * @param index 
    * @returns 
    */
-  start(index: number, creator: PoolCreator<T> = this.creator) {
+  start(index: number, creator: PoolCreator<T>) {
     this.abort(index)
 
     const aborter = new AbortController()
@@ -421,7 +418,10 @@ export class Starter<T extends Disposable> extends Pool<T> {
    * @returns 
    */
   abort(index: number) {
-    this.#aborters.at(index)?.abort()
+    const aborter = this.#aborters.at(index)
+
+    if (aborter != null)
+      aborter.abort()
 
     delete this.#aborters[index]
   }
