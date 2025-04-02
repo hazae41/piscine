@@ -6,7 +6,7 @@ import { test } from "@hazae41/phobos"
 import { Ok } from "@hazae41/result"
 import { Pool } from "./index.js"
 
-test("pool", async ({ test }) => {
+test("basic", async ({ test }) => {
   async function create() {
     const uuid = crypto.randomUUID() as string
 
@@ -48,25 +48,16 @@ test("pool", async ({ test }) => {
 
   console.log("waiting for any entry")
 
-  const x = await pool.getRandomOrWaitOrThrow()
+  const item = await pool.getRandomOrWaitOrThrow()
+  const view = item.getOrThrow()
 
-  console.log("got", x.getOrThrow().getOrThrow().get())
+  console.log("got", view.get())
 
   await new Promise(ok => setTimeout(ok, 5000))
 
   console.log("ending")
+})
 
-  // const mutex = new Mutex(pool)
+test("complex", async ({ test }) => {
 
-  // async function borrowAndLog() {
-  //   using x = await mutex.runOrWait(() => pool.getCryptoRandomOrThrow().then(x => x.borrowOrThrow()))
-  //   console.log("borrowing", x.getOrThrow().get())
-  //   await new Promise(ok => setTimeout(ok, 1000))
-  //   console.log("returning", x.getOrThrow().get())
-  // }
-
-  // const pa = borrowAndLog()
-  // const pb = borrowAndLog()
-
-  // await Promise.all([pa, pb])
 })

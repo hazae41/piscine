@@ -126,7 +126,7 @@ export class Pool<T extends Disposable> {
   readonly #entries = new Array<PoolEntry<T>>()
 
   /**
-   * A pool
+   * A pool of disposable items
    */
   constructor() { }
 
@@ -292,12 +292,12 @@ export class Pool<T extends Disposable> {
    * @param signal 
    * @returns 
    */
-  async getOrWaitOrThrow(index: number, signal = new AbortController().signal): Promise<PoolOkEntry<T>> {
+  async getOrWaitOrThrow(index: number, signal = new AbortController().signal): Promise<PoolItem<T>> {
     while (true) {
       const entry = this.#entries.at(index)
 
       if (entry != null && entry.isOk() && entry.value.owned)
-        return entry
+        return entry.get()
 
       await Plume.waitOrThrow(this.events, "ready", (f: Future<void>, x) => {
         if (x.index !== index)
@@ -312,12 +312,12 @@ export class Pool<T extends Disposable> {
    * @param signal 
    * @returns 
    */
-  async getRandomOrWaitOrThrow(signal = new AbortController().signal): Promise<PoolOkEntry<T>> {
+  async getRandomOrWaitOrThrow(signal = new AbortController().signal): Promise<PoolItem<T>> {
     while (true) {
       const entry = Arrays.random([...this.#entries.filter(x => x != null && x.isOk() && x.get().owned) as PoolOkEntry<T>[]])
 
       if (entry != null)
-        return entry
+        return entry.get()
 
       await Plume.waitOrThrow(this.events, "ready", (f: Future<void>) => {
         f.resolve()
@@ -330,12 +330,12 @@ export class Pool<T extends Disposable> {
    * @param signal 
    * @returns 
    */
-  async getCryptoRandomOrWaitOrThrow(signal = new AbortController().signal): Promise<PoolOkEntry<T>> {
+  async getCryptoRandomOrWaitOrThrow(signal = new AbortController().signal): Promise<PoolItem<T>> {
     while (true) {
       const entry = Arrays.cryptoRandom([...this.#entries.filter(x => x != null && x.isOk() && x.get().owned) as PoolOkEntry<T>[]])
 
       if (entry != null)
-        return entry
+        return entry.get()
 
       await Plume.waitOrThrow(this.events, "ready", (f: Future<void>) => {
         f.resolve()
@@ -355,7 +355,7 @@ export class StartPool<T extends Disposable> extends Pool<T> {
   readonly #aborters = new Array<AbortController>()
 
   /**
-   * A pool able to start items
+   * A pool of startable items
    */
   constructor() {
     super()
