@@ -56,12 +56,12 @@ export class PoolItem<T extends Disposable> extends Box<T> {
 
     if (entry == null)
       return
-    if (!entry.isOk())
+    if (entry.isErr())
       return
     if (entry.value !== this)
       return
 
-    this.pool.events.emit("ok", entry).catch(console.error)
+    this.pool.events.emit("ready", entry).catch(console.error)
   }
 
 }
@@ -92,8 +92,8 @@ export class PoolErrEntry<T extends Disposable> extends Err<Error> {
 }
 
 export type PoolEvents<T extends Disposable> = {
-  ok: (entry: PoolOkEntry<T>) => void
-  err: (entry: PoolErrEntry<T>) => void
+  ready: (entry: PoolOkEntry<T>) => void
+  error: (entry: PoolErrEntry<T>) => void
 }
 
 export class EmptyPoolError extends Error {
@@ -134,7 +134,7 @@ export class Pool<T extends Disposable> {
     for (const entry of this.#entries) {
       if (entry == null)
         continue
-      if (!entry.isOk())
+      if (entry.isErr())
         continue
       using stack = new Stack()
 
@@ -157,7 +157,7 @@ export class Pool<T extends Disposable> {
 
     if (previous == null)
       return
-    if (!previous.isOk())
+    if (previous.isErr())
       return previous
 
     using stack = new Stack()
@@ -176,8 +176,10 @@ export class Pool<T extends Disposable> {
    */
   set(index: number, result: Result<Disposer<T>, Error>) {
     if (result.isOk()) {
-      const value = result.get().get()
-      const clean = new Deferred(() => result.get()[Symbol.dispose]())
+      const disposer = result.get()
+
+      const value = disposer.get()
+      const clean = new Deferred(() => disposer[Symbol.dispose]())
 
       const item = new PoolItem(this, index, value)
       const entry = new PoolOkEntry(this, index, item, clean)
@@ -186,7 +188,7 @@ export class Pool<T extends Disposable> {
 
       this.#entries[index] = entry
 
-      this.events.emit("ok", entry).catch(console.error)
+      this.events.emit("ready", entry).catch(console.error)
 
       return entry
     } else {
@@ -197,7 +199,7 @@ export class Pool<T extends Disposable> {
 
       this.#entries[index] = entry
 
-      this.events.emit("err", entry).catch(console.error)
+      this.events.emit("error", entry).catch(console.error)
 
       return entry
     }
@@ -287,8 +289,8 @@ export class Pool<T extends Disposable> {
   /**
    * Get the item at the given index or wait for it to be available
    * @param index 
-   * @returns the entry at index
-   * @throws if empty
+   * @param signal 
+   * @returns 
    */
   async getOrWaitOrThrow(index: number, signal = new AbortController().signal): Promise<PoolOkEntry<T>> {
     while (true) {
@@ -297,7 +299,7 @@ export class Pool<T extends Disposable> {
       if (entry != null && entry.isOk() && entry.value.owned)
         return entry
 
-      await Plume.waitOrThrow(this.events, "ok", (f: Future<void>, x) => {
+      await Plume.waitOrThrow(this.events, "ready", (f: Future<void>, x) => {
         if (x.index !== index)
           return
         f.resolve()
@@ -317,7 +319,7 @@ export class Pool<T extends Disposable> {
       if (entry != null)
         return entry
 
-      await Plume.waitOrThrow(this.events, "ok", (f: Future<void>) => {
+      await Plume.waitOrThrow(this.events, "ready", (f: Future<void>) => {
         f.resolve()
       }, signal)
     }
@@ -335,7 +337,7 @@ export class Pool<T extends Disposable> {
       if (entry != null)
         return entry
 
-      await Plume.waitOrThrow(this.events, "ok", (f: Future<void>) => {
+      await Plume.waitOrThrow(this.events, "ready", (f: Future<void>) => {
         f.resolve()
       }, signal)
     }
