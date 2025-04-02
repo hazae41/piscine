@@ -17,7 +17,7 @@ export type PoolEntry<T extends Disposable> =
   | PoolOkEntry<T>
   | PoolErrEntry<T>
 
-export type X<T extends Disposable> =
+export type Pendable<T extends Disposable> =
   | Pending<T>
   | Settled<T>
 export class Pending<T extends Disposable> {
@@ -71,7 +71,7 @@ export class PoolItem<T extends Disposable> extends Box<T> {
     super(value)
   }
 
-  async await<U extends Disposable>(this: PoolItem<X<U>>) {
+  async await<U extends Disposable>(this: PoolItem<Pendable<U>>) {
     if (this.value.isSettled())
       return this as PoolItem<Settled<U>>
     return await this.value.promise

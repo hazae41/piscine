@@ -3,7 +3,7 @@ import "@hazae41/symbol-dispose-polyfill"
 import { Disposer, Stack } from "@hazae41/box"
 import { test } from "@hazae41/phobos"
 import { Catched, Err, Ok } from "@hazae41/result"
-import { Pending, Pool, PoolOkEntry, Settled, X } from "./index.js"
+import { Pendable, Pending, Pool, PoolOkEntry, Settled } from "./index.js"
 
 // test("basic", async ({ test }) => {
 //   async function create() {
@@ -60,7 +60,7 @@ import { Pending, Pool, PoolOkEntry, Settled, X } from "./index.js"
 test("complex", async ({ test }) => {
   type T = Disposer<string>
 
-  using pool = new Pool<X<Disposer<string>>>()
+  using pool = new Pool<Pendable<Disposer<string>>>()
 
   async function create(signal: AbortSignal) {
     const uuid = crypto.randomUUID() as string
@@ -136,4 +136,5 @@ test("complex", async ({ test }) => {
   console.log("x", x)
   const y = await x.await()
   console.log("y", y)
+  using z = y.moveOrThrow()
 })
