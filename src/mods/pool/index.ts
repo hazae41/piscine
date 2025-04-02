@@ -1,6 +1,5 @@
 import { Arrays } from "@hazae41/arrays";
-import { Box, Deferred, Stack } from "@hazae41/box";
-import { Disposer } from "@hazae41/disposer";
+import { Box, Deferred, Disposer, Stack } from "@hazae41/box";
 import { Future } from "@hazae41/future";
 import { Nullable } from "@hazae41/option";
 import { Plume, SuperEventTarget } from "@hazae41/plume";
@@ -178,11 +177,8 @@ export class Pool<T extends Disposable> {
     if (result.isOk()) {
       const disposer = result.get()
 
-      const value = disposer.get()
-      const clean = new Deferred(() => disposer[Symbol.dispose]())
-
-      const item = new PoolItem(this, index, value)
-      const entry = new PoolOkEntry(this, index, item, clean)
+      const item = new PoolItem(this, index, disposer.value)
+      const entry = new PoolOkEntry(this, index, item, disposer.clean)
 
       this.delete(index)
 
