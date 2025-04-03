@@ -3,7 +3,7 @@ import "@hazae41/symbol-dispose-polyfill"
 import { Disposer, Stack } from "@hazae41/box"
 import { test } from "@hazae41/phobos"
 import { Catched, Err, Ok } from "@hazae41/result"
-import { Pendable, Pending, Pool, PoolOkEntry, Settled } from "./index.js"
+import { Pending, Pool, PoolCreator, PoolCreatorParams } from "./index.js"
 
 // test("basic", async ({ test }) => {
 //   async function create() {
@@ -60,9 +60,11 @@ import { Pendable, Pending, Pool, PoolOkEntry, Settled } from "./index.js"
 test("complex", async ({ test }) => {
   type T = Disposer<string>
 
-  using pool = new Pool<Pendable<Disposer<string>>>()
+  using pool = new Pool<Disposer<string>>()
 
-  async function create(signal: AbortSignal) {
+  async function create(params: PoolCreatorParams) {
+    const { index, signal } = params
+
     const uuid = crypto.randomUUID() as string
 
     console.log("creating", uuid)
@@ -75,6 +77,8 @@ test("complex", async ({ test }) => {
 
     const onEntryClean = () => {
       console.log("cleaning entry", uuid)
+
+      pool.delete(index)
     }
 
     const value = Disposer.wrap(uuid, onValueClean)
@@ -97,24 +101,17 @@ test("complex", async ({ test }) => {
 
       stack.array.length = 0
 
-      const wrapped = new Settled(disposer.value)
-      const dmapped = new Disposer(wrapped, disposer.clean)
-
-      const entry = pool.set(index, new Ok(dmapped)) as PoolOkEntry<Settled<T>>
-
-      return entry.get()
+      return pool.set(index, new Ok(disposer))
     } catch (e: unknown) {
       signal.throwIfAborted()
 
       const value = Catched.wrap(e)
 
-      pool.set(index, new Err(value))
-
-      throw e
+      return pool.set(index, new Err(value))
     }
   }
 
-  async function launch(index: number, create: (signal: AbortSignal) => Promise<Disposer<T>>) {
+  async function launch(index: number, create: PoolCreator<T>) {
     pool.delete(index)
 
     console.log("launching", index)
@@ -122,10 +119,10 @@ test("complex", async ({ test }) => {
     const aborter = new AbortController()
     const { signal } = aborter
 
-    const promise = wait(index, create(signal), signal)
+    const promise = wait(index, create({ index, signal }), signal)
     const pending = new Pending(promise, aborter)
 
-    pool.set(index, new Ok(Disposer.wrap(pending)))
+    pool.set(index, new Err(pending))
 
     return await promise
   }
@@ -134,7 +131,18 @@ test("complex", async ({ test }) => {
 
   const x = pool.getOrThrow(0)
   console.log("x", x)
-  const y = await x.await()
-  console.log("y", y)
-  using z = y.moveOrThrow()
+
+  const y = pool.getAnyOrThrow(0)
+
+  if (y.isOk()) {
+
+  } else {
+    const error = y.getErr()
+
+    if (error instanceof Pending) {
+      const item = await error.promise
+    } else {
+      throw error
+    }
+  }
 })

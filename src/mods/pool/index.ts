@@ -3,7 +3,7 @@ import { Box, Deferred, Disposer, Stack } from "@hazae41/box";
 import { Future } from "@hazae41/future";
 import { Nullable } from "@hazae41/option";
 import { Plume, SuperEventTarget } from "@hazae41/plume";
-import { Catched, Err, Ok, Result } from "@hazae41/result";
+import { Err, Ok, Result } from "@hazae41/result";
 
 export interface PoolCreatorParams {
   readonly index: number
@@ -17,46 +17,17 @@ export type PoolEntry<T extends Disposable> =
   | PoolOkEntry<T>
   | PoolErrEntry<T>
 
-export type Pendable<T extends Disposable> =
-  | Pending<T>
-  | Settled<T>
-export class Pending<T extends Disposable> {
+export class Pending<T extends Disposable> extends Error {
 
   constructor(
-    readonly promise: PromiseLike<PoolItem<Settled<T>>>,
-    readonly aborter: AbortController
-  ) { }
+    readonly promise: Promise<PoolEntry<T>>,
+    readonly aborter: AbortController,
+  ) {
+    super("Pending")
+  }
 
   [Symbol.dispose]() {
     this.aborter.abort()
-  }
-
-  isPending(): this is Pending<T> {
-    return true
-  }
-
-  isSettled(): false {
-    return false
-  }
-
-}
-
-export class Settled<T extends Disposable> {
-
-  constructor(
-    readonly value: T
-  ) { }
-
-  [Symbol.dispose]() {
-    this.value[Symbol.dispose]()
-  }
-
-  isPending(): false {
-    return false
-  }
-
-  isSettled(): this is Settled<T> {
-    return true
   }
 
 }
@@ -66,15 +37,10 @@ export class PoolItem<T extends Disposable> extends Box<T> {
   constructor(
     readonly pool: Pool<T>,
     readonly index: number,
-    readonly value: T
+    readonly value: T,
+    readonly clean: Deferred,
   ) {
     super(value)
-  }
-
-  async await<U extends Disposable>(this: PoolItem<Pendable<U>>) {
-    if (this.value.isSettled())
-      return this as PoolItem<Settled<U>>
-    return await this.value.promise
   }
 
   moveOrNull() {
@@ -82,7 +48,7 @@ export class PoolItem<T extends Disposable> extends Box<T> {
 
     if (box == null)
       return
-    this.pool.delete(this.index)
+    using _ = this.clean
 
     return box
   }
@@ -90,9 +56,27 @@ export class PoolItem<T extends Disposable> extends Box<T> {
   moveOrThrow(): Box<T> {
     const box = super.moveOrThrow()
 
-    this.pool.delete(this.index)
+    using _ = this.clean
 
     return box
+  }
+
+  unwrapOrNull(): Nullable<T> {
+    const value = super.unwrapOrNull()
+
+    if (value == null)
+      return
+    using _ = this.clean
+
+    return value
+  }
+
+  unwrapOrThrow(): T {
+    const value = super.unwrapOrThrow()
+
+    using _ = this.clean
+
+    return value
   }
 
   returnOrThrow(): void {
@@ -120,8 +104,7 @@ export class PoolOkEntry<T extends Disposable> extends Ok<PoolItem<T>> {
   constructor(
     readonly pool: Pool<T>,
     readonly index: number,
-    readonly value: PoolItem<T>,
-    readonly clean: Deferred
+    readonly value: PoolItem<T>
   ) {
     super(value)
   }
@@ -188,7 +171,7 @@ export class Pool<T extends Disposable> {
       using stack = new Stack()
 
       stack.push(entry.value)
-      stack.push(entry.clean)
+      stack.push(entry.value.clean)
     }
 
     this.#entries.length = 0
@@ -212,7 +195,7 @@ export class Pool<T extends Disposable> {
     using stack = new Stack()
 
     stack.push(previous.value)
-    stack.push(previous.clean)
+    stack.push(previous.value.clean)
 
     return previous
   }
@@ -227,8 +210,8 @@ export class Pool<T extends Disposable> {
     if (result.isOk()) {
       const disposer = result.get()
 
-      const item = new PoolItem(this, index, disposer.value)
-      const entry = new PoolOkEntry(this, index, item, disposer.clean)
+      const item = new PoolItem(this, index, disposer.value, disposer.clean)
+      const entry = new PoolOkEntry(this, index, item)
 
       this.delete(index)
 
@@ -391,101 +374,101 @@ export class Pool<T extends Disposable> {
 
 }
 
-export class StartPool<T extends Disposable> extends Pool<T> {
+// export class StartPool<T extends Disposable> extends Pool<T,E> {
 
-  readonly events = new SuperEventTarget<PoolEvents<T>>()
+//   readonly events = new SuperEventTarget<PoolEvents<T,E>>()
 
-  /**
-   * Sparse aborters by index
-   */
-  readonly #aborters = new Array<AbortController>()
+//   /**
+//    * Sparse aborters by index
+//    */
+//   readonly #aborters = new Array<AbortController>()
 
-  /**
-   * A pool of startable items
-   */
-  constructor() {
-    super()
-  }
+//   /**
+//    * A pool of startable items
+//    */
+//   constructor() {
+//     super()
+//   }
 
-  [Symbol.dispose]() {
-    for (const aborter of this.#aborters) {
-      if (aborter == null)
-        continue
+//   [Symbol.dispose]() {
+//     for (const aborter of this.#aborters) {
+//       if (aborter == null)
+//         continue
 
-      aborter.abort()
-    }
+//       aborter.abort()
+//     }
 
-    this.#aborters.length = 0
-  }
+//     this.#aborters.length = 0
+//   }
 
-  async #create(index: number, creator: PoolCreator<T>, signal: AbortSignal) {
-    try {
-      const disposer = await creator({ index, signal })
+//   async #create(index: number, creator: PoolCreator<T>, signal: AbortSignal) {
+//     try {
+//       const disposer = await creator({ index, signal })
 
-      using stack = new Stack()
+//       using stack = new Stack()
 
-      stack.push(disposer)
-      stack.push(disposer.get())
+//       stack.push(disposer)
+//       stack.push(disposer.get())
 
-      if (signal.aborted)
-        return
+//       if (signal.aborted)
+//         return
 
-      stack.array.length = 0
+//       stack.array.length = 0
 
-      this.set(index, new Ok(disposer))
-    } catch (e: unknown) {
-      if (signal.aborted)
-        return
+//       this.set(index, new Ok(disposer))
+//     } catch (e: unknown) {
+//       if (signal.aborted)
+//         return
 
-      const value = Catched.wrap(e)
+//       const value = Catched.wrap(e)
 
-      this.set(index, new Err(value))
-    }
-  }
+//       this.set(index, new Err(value))
+//     }
+//   }
 
-  /**
-   * Start the given index
-   * @param index 
-   * @returns 
-   */
-  start(index: number, creator: PoolCreator<T>) {
-    this.abort(index)
+//   /**
+//    * Start the given index
+//    * @param index 
+//    * @returns 
+//    */
+//   start(index: number, creator: PoolCreator<T>) {
+//     this.abort(index)
 
-    const aborter = new AbortController()
-    this.#aborters[index] = aborter
-    const { signal } = aborter
+//     const aborter = new AbortController()
+//     this.#aborters[index] = aborter
+//     const { signal } = aborter
 
-    this.#create(index, creator, signal)
-  }
+//     this.#create(index, creator, signal)
+//   }
 
-  /**
-   * Abort the given index
-   * @param index 
-   * @returns 
-   */
-  abort(index: number) {
-    const aborter = this.#aborters.at(index)
+//   /**
+//    * Abort the given index
+//    * @param index 
+//    * @returns 
+//    */
+//   abort(index: number) {
+//     const aborter = this.#aborters.at(index)
 
-    if (aborter != null)
-      aborter.abort()
+//     if (aborter != null)
+//       aborter.abort()
 
-    delete this.#aborters[index]
-  }
+//     delete this.#aborters[index]
+//   }
 
-}
+// }
 
-export class AutoPool<T extends Disposable> extends StartPool<T> {
+// export class AutoPool<T extends Disposable> extends StartPool<T> {
 
-  constructor(
-    readonly creator: PoolCreator<T>,
-    readonly capacity: number
-  ) {
-    super()
+//   constructor(
+//     readonly creator: PoolCreator<T>,
+//     readonly capacity: number
+//   ) {
+//     super()
 
-    for (let i = 0; i < capacity; i++)
-      this.start(i, creator)
+//     for (let i = 0; i < capacity; i++)
+//       this.start(i, creator)
 
-    return this
-  }
+//     return this
+//   }
 
-}
+// }
