@@ -60,7 +60,7 @@ import { Pending, Pool, PoolCreator, PoolCreatorParams } from "./index.js"
 test("complex", async ({ test }) => {
   type T = Disposer<string>
 
-  using pool = new Pool<Disposer<string>>()
+  using pool = new Pool<T>()
 
   async function create(params: PoolCreatorParams) {
     const { index, signal } = params
