@@ -1,5 +1,5 @@
 import { Arrays } from "@hazae41/arrays";
-import { Box, Deferred, Disposer, Stack } from "@hazae41/box";
+import { Borrow, Box, Deferred, Disposer, Stack } from "@hazae41/box";
 import { Future } from "@hazae41/future";
 import { Nullable } from "@hazae41/option";
 import { Plume, SuperEventTarget } from "@hazae41/plume";
@@ -321,6 +321,21 @@ export class Pool<T extends Disposable> {
 
       if (entry != null && entry.isOk() && entry.value.owned)
         return entry.get()
+
+      await Plume.waitOrThrow(this.events, "ready", (f: Future<void>, x) => {
+        if (x.index !== index)
+          return
+        f.resolve()
+      }, signal)
+    }
+  }
+
+  async borrowOrWaitOrThrow(index: number, signal = new AbortController().signal): Promise<Borrow<T>> {
+    while (true) {
+      const entry = this.#entries.at(index)
+
+      if (entry != null && entry.isOk() && entry.value.owned)
+        return entry.get().borrowOrThrow()
 
       await Plume.waitOrThrow(this.events, "ready", (f: Future<void>, x) => {
         if (x.index !== index)

@@ -5,7 +5,7 @@ import { test } from "@hazae41/phobos"
 import { Catched, Err } from "@hazae41/result"
 import { AutoPool, PoolCreatorParams } from "./index.js"
 
-test("basic", async ({ test }) => {
+test("basic", async ({ test, wait }) => {
   async function create(params: PoolCreatorParams) {
     const { index, signal } = params
 
@@ -15,6 +15,7 @@ test("basic", async ({ test }) => {
     const resource = Disposer.wrap(socket, () => socket.close())
 
     await new Promise(ok => socket.addEventListener("open", ok))
+    await new Promise(ok => socket.addEventListener("message", ok))
 
     console.log("created", index)
 
@@ -34,7 +35,7 @@ test("basic", async ({ test }) => {
     return Disposer.wrap(resource, onEntryClean)
   }
 
-  using pool = new AutoPool(create, 3)
+  using pool = new AutoPool(create, 1)
 
   borrow(0)
   borrow(0)
@@ -42,15 +43,12 @@ test("basic", async ({ test }) => {
   async function borrow(index: number) {
     console.log("waiting", index)
 
-    const box = await pool.getOrWaitOrThrow(index)
+    using borrow = await pool.borrowOrWaitOrThrow(index)
 
     console.log("borrowing", index)
 
-    using borrow = box.borrowOrThrow()
     const resource = borrow.getOrThrow()
     const socket = resource.get()
-
-    console.log("borrowed", index)
 
     socket.send("hello world")
 
