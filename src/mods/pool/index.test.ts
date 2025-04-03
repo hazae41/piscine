@@ -1,67 +1,11 @@
 import "@hazae41/symbol-dispose-polyfill"
 
-import { Disposer, Stack } from "@hazae41/box"
+import { Box, Disposer } from "@hazae41/box"
 import { test } from "@hazae41/phobos"
 import { Catched, Err, Ok } from "@hazae41/result"
-import { Pendable, Pending, Pool, PoolCreator, PoolCreatorParams, Settled } from "./index.js"
+import { PoolCreatorParams, StartPool } from "./index.js"
 
-// test("basic", async ({ test }) => {
-//   async function create() {
-//     const uuid = crypto.randomUUID() as string
-
-//     console.log("creating", uuid)
-
-//     await new Promise(ok => setTimeout(ok, 1000))
-
-//     const onValueClean = () => {
-//       console.log("cleaning value", uuid)
-//     }
-
-//     const onEntryClean = () => {
-//       console.log("cleaning entry", uuid)
-//     }
-
-//     const value = Disposer.wrap(uuid, onValueClean)
-
-//     console.log("created", uuid)
-
-//     return Disposer.wrap(value, onEntryClean)
-//   }
-
-//   using pool = new Pool<Disposer<string>>()
-
-//   const fake0 = await create()
-//   const fake1 = await create()
-
-//   pool.set(0, new Ok(fake0))
-//   pool.set(1, new Ok(fake1))
-
-//   // borrow(pool.getOrThrow(0))
-//   // borrow(pool.getOrThrow(1))
-
-//   async function borrow(box: Box<Disposer<string>>) {
-//     using borrow = box.borrowOrThrow()
-//     console.log("borrowed", borrow.getOrThrow().get())
-//     await new Promise(ok => setTimeout(ok, 1000))
-//   }
-
-//   console.log("waiting for any entry")
-
-//   const item = await pool.getRandomOrWaitOrThrow()
-//   const view = item.getOrThrow()
-
-//   console.log("got", view.get())
-
-//   await new Promise(ok => setTimeout(ok, 5000))
-
-//   console.log("ending")
-// })
-
-test("complex", async ({ test }) => {
-  type T = Disposer<string>
-
-  using pool = new Pool<Pendable<T>>()
-
+test("basic", async ({ test }) => {
   async function create(params: PoolCreatorParams) {
     const { index, signal } = params
 
@@ -79,6 +23,11 @@ test("complex", async ({ test }) => {
       console.log("cleaning entry", uuid)
     }
 
+    const onError = (error: unknown) => {
+      pool.set(index, new Err(Catched.wrap(error)))
+      pool.start(index, create)
+    }
+
     const value = Disposer.wrap(uuid, onValueClean)
 
     console.log("created", uuid)
@@ -86,54 +35,31 @@ test("complex", async ({ test }) => {
     return Disposer.wrap(value, onEntryClean)
   }
 
-  async function wait(index: number, promise: Promise<Disposer<T>>, signal: AbortSignal) {
-    try {
-      const disposer = await promise
+  using pool = new StartPool<Disposer<string>>()
 
-      using stack = new Stack()
+  const fake0 = await create({ index: 0, signal: new AbortController().signal })
+  const fake1 = await create({ index: 1, signal: new AbortController().signal })
 
-      stack.push(disposer)
-      stack.push(disposer.get())
+  pool.set(0, new Ok(fake0))
+  pool.set(1, new Ok(fake1))
 
-      signal.throwIfAborted()
+  // borrow(pool.getOrThrow(0))
+  // borrow(pool.getOrThrow(1))
 
-      stack.array.length = 0
-
-      const { value, clean } = disposer
-      const settled = new Settled(value)
-      const disposer2 = new Disposer(settled, clean)
-
-      return pool.set(index, new Ok(disposer2))
-    } catch (e: unknown) {
-      signal.throwIfAborted()
-
-      const value = Catched.wrap(e)
-
-      return pool.set(index, new Err(value))
-    }
+  async function borrow(box: Box<Disposer<string>>) {
+    using borrow = box.borrowOrThrow()
+    console.log("borrowed", borrow.getOrThrow().get())
+    await new Promise(ok => setTimeout(ok, 1000))
   }
 
-  async function launch(index: number, create: PoolCreator<T>) {
-    pool.delete(index)
+  console.log("waiting for any entry")
 
-    console.log("launching", index)
+  const item = await pool.getRandomOrWaitOrThrow()
+  const view = item.getOrThrow()
 
-    const aborter = new AbortController()
-    const { signal } = aborter
+  console.log("got", view.get())
 
-    const promise = create({ index, signal })
-    const pending = new Pending(promise, aborter)
-    const disposer = Disposer.wrap(pending, () => { })
+  await new Promise(ok => setTimeout(ok, 5000))
 
-    pool.set(index, new Ok(disposer))
-
-    return await wait(index, promise, signal)
-  }
-
-  launch(0, create)
-
-  const x = pool.getOrThrow(0)
-  console.log("x", x)
-
-  const y = x.getOrThrow()
+  console.log("ending")
 })
