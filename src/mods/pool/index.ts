@@ -17,17 +17,47 @@ export type PoolEntry<T extends Disposable> =
   | PoolOkEntry<T>
   | PoolErrEntry<T>
 
-export class Pending<T extends Disposable> extends Error {
+export type Pendable<T extends Disposable> =
+  | Pending<T>
+  | Settled<T>
+
+export class Pending<T extends Disposable> {
 
   constructor(
-    readonly promise: Promise<PoolEntry<T>>,
+    readonly promise: Promise<Disposer<T>>,
     readonly aborter: AbortController,
-  ) {
-    super("Pending")
-  }
+  ) { }
 
   [Symbol.dispose]() {
     this.aborter.abort()
+  }
+
+  isPending(): this is Pending<T> {
+    return true
+  }
+
+  isSettled(): false {
+    return false
+  }
+
+}
+
+export class Settled<T extends Disposable> {
+
+  constructor(
+    readonly value: T
+  ) { }
+
+  [Symbol.dispose]() {
+    this.value[Symbol.dispose]()
+  }
+
+  isPending(): false {
+    return false
+  }
+
+  isSettled(): this is Settled<T> {
+    return true
   }
 
 }
@@ -295,7 +325,7 @@ export class Pool<T extends Disposable> {
    * Get a random item or throw if none available
    * @returns 
    */
-  getRandomOrThrow(): PoolItem<T> {
+  getRandomOrThrow(filter: (value: PoolEntry<T>) => boolean): PoolItem<T> {
     const entry = Arrays.random([...this.#entries.filter(x => x != null && x.isOk() && x.get().owned) as PoolOkEntry<T>[]])
 
     if (entry == null)

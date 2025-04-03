@@ -3,7 +3,7 @@ import "@hazae41/symbol-dispose-polyfill"
 import { Disposer, Stack } from "@hazae41/box"
 import { test } from "@hazae41/phobos"
 import { Catched, Err, Ok } from "@hazae41/result"
-import { Pending, Pool, PoolCreator, PoolCreatorParams } from "./index.js"
+import { Pendable, Pending, Pool, PoolCreator, PoolCreatorParams, Settled } from "./index.js"
 
 // test("basic", async ({ test }) => {
 //   async function create() {
@@ -60,7 +60,7 @@ import { Pending, Pool, PoolCreator, PoolCreatorParams } from "./index.js"
 test("complex", async ({ test }) => {
   type T = Disposer<string>
 
-  using pool = new Pool<T>()
+  using pool = new Pool<Pendable<T>>()
 
   async function create(params: PoolCreatorParams) {
     const { index, signal } = params
@@ -99,7 +99,11 @@ test("complex", async ({ test }) => {
 
       stack.array.length = 0
 
-      return pool.set(index, new Ok(disposer))
+      const { value, clean } = disposer
+      const settled = new Settled(value)
+      const disposer2 = new Disposer(settled, clean)
+
+      return pool.set(index, new Ok(disposer2))
     } catch (e: unknown) {
       signal.throwIfAborted()
 
@@ -117,12 +121,13 @@ test("complex", async ({ test }) => {
     const aborter = new AbortController()
     const { signal } = aborter
 
-    const promise = wait(index, create({ index, signal }), signal)
+    const promise = create({ index, signal })
     const pending = new Pending(promise, aborter)
+    const disposer = Disposer.wrap(pending, () => { })
 
-    pool.set(index, new Err(pending))
+    pool.set(index, new Ok(disposer))
 
-    return await promise
+    return await wait(index, promise, signal)
   }
 
   launch(0, create)
@@ -130,17 +135,5 @@ test("complex", async ({ test }) => {
   const x = pool.getOrThrow(0)
   console.log("x", x)
 
-  const y = pool.getAnyOrThrow(0)
-
-  if (y.isOk()) {
-
-  } else {
-    const error = y.getErr()
-
-    if (error instanceof Pending) {
-      const item = await error.promise
-    } else {
-      throw error
-    }
-  }
+  const y = x.getOrThrow()
 })
