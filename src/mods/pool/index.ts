@@ -5,17 +5,24 @@ import { Nullable } from "@hazae41/option";
 import { Plume, SuperEventTarget } from "@hazae41/plume";
 import { Catched, Err, Ok, Result } from "@hazae41/result";
 
-export interface PoolCreatorParams {
-  readonly index: number
-  readonly signal: AbortSignal
-}
-
-export type PoolCreator<T> =
-  (params: PoolCreatorParams) => Promise<Disposer<T>>
-
 export type PoolEntry<T extends Disposable> =
   | PoolOkEntry<T>
   | PoolErrEntry<T>
+
+export class Double<T extends Disposable> {
+
+  constructor(
+    readonly value: T,
+    readonly clean: Deferred,
+  ) { }
+
+  [Symbol.dispose]() {
+    using _ = this.clean
+
+    this.value[Symbol.dispose]()
+  }
+
+}
 
 export class PoolItem<T extends Disposable> extends Box<T> {
 
@@ -361,6 +368,15 @@ export class Pool<T extends Disposable> {
 
 }
 
+export interface PoolCreatorParams {
+  readonly index: number
+  readonly signal: AbortSignal
+}
+
+export type PoolCreator<T> = (
+  params: PoolCreatorParams
+) => Promise<Disposer<T>>
+
 export class StartPool<T extends Disposable> extends Pool<T> {
 
   /**
@@ -376,6 +392,8 @@ export class StartPool<T extends Disposable> extends Pool<T> {
   }
 
   [Symbol.dispose]() {
+    super[Symbol.dispose]()
+
     for (const aborter of this.#aborters)
       aborter?.abort()
 
@@ -440,18 +458,18 @@ export class StartPool<T extends Disposable> extends Pool<T> {
 
 }
 
-// export class AutoPool<T extends Disposable> extends StartPool<T> {
+export class AutoPool<T extends Disposable> extends StartPool<T> {
 
-//   constructor(
-//     readonly creator: PoolCreator<T>,
-//     readonly capacity: number
-//   ) {
-//     super()
+  constructor(
+    readonly creator: PoolCreator<T>,
+    readonly capacity: number
+  ) {
+    super()
 
-//     for (let i = 0; i < capacity; i++)
-//       this.start(i, creator)
+    for (let i = 0; i < capacity; i++)
+      this.start(i, creator)
 
-//     return this
-//   }
+    return this
+  }
 
-// }
+}

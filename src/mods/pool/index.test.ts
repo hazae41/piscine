@@ -1,63 +1,65 @@
 import "@hazae41/symbol-dispose-polyfill"
 
-import { Box, Disposer } from "@hazae41/box"
+import { Disposer } from "@hazae41/box"
 import { test } from "@hazae41/phobos"
-import { Catched, Err, Ok } from "@hazae41/result"
-import { PoolCreatorParams, StartPool } from "./index.js"
+import { Catched, Err } from "@hazae41/result"
+import { AutoPool, PoolCreatorParams } from "./index.js"
 
 test("basic", async ({ test }) => {
   async function create(params: PoolCreatorParams) {
     const { index, signal } = params
 
-    const uuid = crypto.randomUUID() as string
+    console.log("creating", index)
 
-    console.log("creating", uuid)
+    const socket = new WebSocket(`wss://echo.websocket.org/`)
+    const resource = Disposer.wrap(socket, () => socket.close())
 
-    await new Promise(ok => setTimeout(ok, 1000))
+    await new Promise(ok => socket.addEventListener("open", ok))
 
-    const onValueClean = () => {
-      console.log("cleaning value", uuid)
-    }
-
-    const onEntryClean = () => {
-      console.log("cleaning entry", uuid)
-    }
+    console.log("created", index)
 
     const onError = (error: unknown) => {
       pool.set(index, new Err(Catched.wrap(error)))
       pool.start(index, create)
     }
 
-    const value = Disposer.wrap(uuid, onValueClean)
+    socket.addEventListener("error", onError)
+    socket.addEventListener("close", onError)
 
-    console.log("created", uuid)
+    const onEntryClean = () => {
+      socket.removeEventListener("error", onError)
+      socket.removeEventListener("close", onError)
+    }
 
-    return Disposer.wrap(value, onEntryClean)
+    return Disposer.wrap(resource, onEntryClean)
   }
 
-  using pool = new StartPool<Disposer<string>>()
+  using pool = new AutoPool(create, 3)
 
-  const fake0 = await create({ index: 0, signal: new AbortController().signal })
-  const fake1 = await create({ index: 1, signal: new AbortController().signal })
+  borrow(0)
+  borrow(0)
 
-  pool.set(0, new Ok(fake0))
-  pool.set(1, new Ok(fake1))
+  async function borrow(index: number) {
+    console.log("waiting", index)
 
-  // borrow(pool.getOrThrow(0))
-  // borrow(pool.getOrThrow(1))
+    const box = await pool.getOrWaitOrThrow(index)
 
-  async function borrow(box: Box<Disposer<string>>) {
+    console.log("borrowing", index)
+
     using borrow = box.borrowOrThrow()
-    console.log("borrowed", borrow.getOrThrow().get())
-    await new Promise(ok => setTimeout(ok, 1000))
+    const resource = borrow.getOrThrow()
+    const socket = resource.get()
+
+    console.log("borrowed", index)
+
+    socket.send("hello world")
+
+    const event = await new Promise<MessageEvent>(ok => socket.addEventListener("message", ok))
+
+    console.log("got", event.data)
+
+    console.log("returning", index)
   }
-
-  console.log("waiting for any entry")
-
-  const item = await pool.getRandomOrWaitOrThrow()
-  const view = item.getOrThrow()
-
-  console.log("got", view.get())
 
   await new Promise(ok => setTimeout(ok, 5000))
 
