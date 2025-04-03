@@ -77,8 +77,6 @@ test("complex", async ({ test }) => {
 
     const onEntryClean = () => {
       console.log("cleaning entry", uuid)
-
-      pool.delete(index)
     }
 
     const value = Disposer.wrap(uuid, onValueClean)

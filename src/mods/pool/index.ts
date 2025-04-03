@@ -1,5 +1,5 @@
 import { Arrays } from "@hazae41/arrays";
-import { Box, Deferred, Disposer, Stack } from "@hazae41/box";
+import { Box, Deferred, Disposer } from "@hazae41/box";
 import { Future } from "@hazae41/future";
 import { Nullable } from "@hazae41/option";
 import { Plume, SuperEventTarget } from "@hazae41/plume";
@@ -43,12 +43,18 @@ export class PoolItem<T extends Disposable> extends Box<T> {
     super(value)
   }
 
+  [Symbol.dispose]() {
+    using _ = this.clean
+
+    super[Symbol.dispose]()
+  }
+
   moveOrNull() {
     const box = super.moveOrNull()
 
     if (box == null)
       return
-    using _ = this.clean
+    this.pool.delete(this.index)
 
     return box
   }
@@ -56,7 +62,7 @@ export class PoolItem<T extends Disposable> extends Box<T> {
   moveOrThrow(): Box<T> {
     const box = super.moveOrThrow()
 
-    using _ = this.clean
+    this.pool.delete(this.index)
 
     return box
   }
@@ -66,7 +72,7 @@ export class PoolItem<T extends Disposable> extends Box<T> {
 
     if (value == null)
       return
-    using _ = this.clean
+    this.pool.delete(this.index)
 
     return value
   }
@@ -74,7 +80,7 @@ export class PoolItem<T extends Disposable> extends Box<T> {
   unwrapOrThrow(): T {
     const value = super.unwrapOrThrow()
 
-    using _ = this.clean
+    this.pool.delete(this.index)
 
     return value
   }
@@ -85,16 +91,7 @@ export class PoolItem<T extends Disposable> extends Box<T> {
     if (!this.owned)
       return
 
-    const entry = this.pool.getAnyOrNull(this.index)
-
-    if (entry == null)
-      return
-    if (entry.isErr())
-      return
-    if (entry.value !== this)
-      return
-
-    this.pool.events.emit("ready", entry).catch(console.error)
+    this.pool.update(this.index)
   }
 
 }
@@ -168,10 +165,7 @@ export class Pool<T extends Disposable> {
         continue
       if (entry.isErr())
         continue
-      using stack = new Stack()
-
-      stack.push(entry.value)
-      stack.push(entry.value.clean)
+      using _ = entry.get()
     }
 
     this.#entries.length = 0
@@ -192,10 +186,7 @@ export class Pool<T extends Disposable> {
     if (previous.isErr())
       return previous
 
-    using stack = new Stack()
-
-    stack.push(previous.value)
-    stack.push(previous.value.clean)
+    using _ = previous.get()
 
     return previous
   }
@@ -232,6 +223,17 @@ export class Pool<T extends Disposable> {
 
       return entry
     }
+  }
+
+  update(index: number) {
+    const entry = this.#entries.at(index)
+
+    if (entry == null)
+      return
+    if (entry.isErr())
+      return
+
+    this.events.emit("ready", entry).catch(console.error)
   }
 
   /**
