@@ -25,11 +25,6 @@ export class EmptySlotError extends Error {
 
 }
 
-export interface Indexed<T> {
-  readonly index: number
-  readonly value: T
-}
-
 export class Indexed<T extends Disposable> {
 
   constructor(
