@@ -12,7 +12,14 @@ test("basic", async ({ test, wait }) => {
     console.log("creating", index)
 
     const socket = new WebSocket(`wss://echo.websocket.org/`)
-    const resource = Disposer.wrap(socket, () => socket.close())
+
+    const onDestroy = () => {
+      socket.close()
+
+      console.log("destroying", index)
+    }
+
+    const resource = Disposer.wrap(socket, onDestroy)
 
     await new Promise(ok => socket.addEventListener("open", ok))
     await new Promise(ok => socket.addEventListener("message", ok))
@@ -27,39 +34,39 @@ test("basic", async ({ test, wait }) => {
     socket.addEventListener("error", onError)
     socket.addEventListener("close", onError)
 
-    const onEntryClean = () => {
+    const onDelete = () => {
       socket.removeEventListener("error", onError)
       socket.removeEventListener("close", onError)
 
-      pool.delete(index)
+      console.log("deleting", index)
     }
 
-    return Disposer.wrap(resource, onEntryClean)
+    return Disposer.wrap(resource, onDelete)
   }
 
-  using pool = new AutoPool(create, 1)
+  using pool = new AutoPool(create, 3)
 
-  borrow(0)
-  borrow(0)
+  // borrow(0)
+  // borrow(0)
 
-  async function borrow(index: number) {
-    console.log("waiting", index)
+  // async function borrow(index: number) {
+  //   console.log("waiting", index)
 
-    using borrow = await pool.borrowOrWaitOrThrow(index)
+  //   using borrow = await pool.waitOrThrow(index, x => x?.getOrNull()?.borrowOrNull())
 
-    console.log("borrowing", index)
+  //   console.log("borrowing", index)
 
-    const resource = borrow.get()
-    const socket = resource.get()
+  //   const resource = borrow.get()
+  //   const socket = resource.get()
 
-    socket.send("hello world")
+  //   socket.send("hello world")
 
-    const event = await new Promise<MessageEvent>(ok => socket.addEventListener("message", ok))
+  //   const event = await new Promise<MessageEvent>(ok => socket.addEventListener("message", ok))
 
-    console.log("got", event.data)
+  //   console.log("got", event.data)
 
-    console.log("returning", index)
-  }
+  //   console.log("returning", index)
+  // }
 
   await new Promise(ok => setTimeout(ok, 5000))
 
