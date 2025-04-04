@@ -30,12 +30,28 @@ export interface Indexed<T> {
   readonly value: T
 }
 
-export class PoolItem<T extends Disposable> extends Box<T> {
+export class Indexed<T extends Disposable> {
+
+  constructor(
+    readonly index: number,
+    readonly value: T,
+  ) { }
+
+  [Symbol.dispose]() {
+    this.value[Symbol.dispose]()
+  }
+
+  get() {
+    return this.value
+  }
+
+}
+
+export class PoolItem<T extends Disposable> extends Box<Indexed<T>> {
 
   constructor(
     readonly pool: Pool<T>,
-    readonly index: number,
-    readonly value: T,
+    readonly value: Indexed<T>,
     readonly clean: Deferred,
   ) {
     super(value)
@@ -50,7 +66,7 @@ export class PoolItem<T extends Disposable> extends Box<T> {
     super[Symbol.dispose]()
 
     if (owned)
-      this.pool.delete(this.index)
+      this.pool.delete(this.value.index)
 
     return
   }
@@ -61,36 +77,36 @@ export class PoolItem<T extends Disposable> extends Box<T> {
     if (box == null)
       return
     this.clean[Symbol.dispose]()
-    this.pool.delete(this.index)
+    this.pool.delete(this.value.index)
 
     return box
   }
 
-  moveOrThrow(): Box<T> {
+  moveOrThrow() {
     const box = super.moveOrThrow()
 
     this.clean[Symbol.dispose]()
-    this.pool.delete(this.index)
+    this.pool.delete(this.value.index)
 
     return box
   }
 
-  unwrapOrNull(): Nullable<T> {
+  unwrapOrNull() {
     const value = super.unwrapOrNull()
 
     if (value == null)
       return
     this.clean[Symbol.dispose]()
-    this.pool.delete(this.index)
+    this.pool.delete(this.value.index)
 
     return value
   }
 
-  unwrapOrThrow(): T {
+  unwrapOrThrow() {
     const value = super.unwrapOrThrow()
 
     this.clean[Symbol.dispose]()
-    this.pool.delete(this.index)
+    this.pool.delete(this.value.index)
 
     return value
   }
@@ -101,7 +117,7 @@ export class PoolItem<T extends Disposable> extends Box<T> {
     if (!this.owned)
       return
 
-    this.pool.update(this.index)
+    this.pool.update(this.value.index)
   }
 
 }
@@ -169,9 +185,10 @@ export class Pool<T extends Disposable> {
    */
   set(index: number, result: Result<Disposer<T>, Error>) {
     if (result.isOk()) {
-      const disposer = result.get()
+      const { value, clean } = result.get()
 
-      const item = new PoolItem(this, index, disposer.value, disposer.clean)
+      const indexed = new Indexed(index, value)
+      const item = new PoolItem(this, indexed, clean)
       const entry = new Ok(item)
 
       this.delete(index)

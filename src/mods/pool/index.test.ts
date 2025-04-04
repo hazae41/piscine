@@ -9,14 +9,14 @@ test("basic", async ({ test, wait }) => {
   async function create(params: PoolCreatorParams) {
     const { index, signal } = params
 
-    console.log("creating", index)
+    console.log(index, "creating")
 
     const socket = new WebSocket(`wss://echo.websocket.org/`)
 
     const onDestroy = () => {
       socket.close()
 
-      console.log("destroying", index)
+      console.log(index, "destroying")
     }
 
     const resource = Disposer.wrap(socket, onDestroy)
@@ -24,7 +24,7 @@ test("basic", async ({ test, wait }) => {
     await new Promise(ok => socket.addEventListener("open", ok))
     await new Promise(ok => socket.addEventListener("message", ok))
 
-    console.log("created", index)
+    console.log(index, "created")
 
     const onError = (error: unknown) => {
       pool.set(index, new Err(Catched.wrap(error)))
@@ -38,35 +38,33 @@ test("basic", async ({ test, wait }) => {
       socket.removeEventListener("error", onError)
       socket.removeEventListener("close", onError)
 
-      console.log("deleting", index)
+      console.log(index, "deleting")
     }
 
     return Disposer.wrap(resource, onDelete)
   }
 
-  using pool = new AutoPool(create, 3)
+  using pool = new AutoPool(create, 2)
 
-  // borrow(0)
-  // borrow(0)
+  async function borrow() {
+    using borrow = await pool.waitRandomOrThrow(x => x?.getOrNull()?.borrowOrNull())
 
-  // async function borrow(index: number) {
-  //   console.log("waiting", index)
+    const { index, value } = borrow.get()
 
-  //   using borrow = await pool.waitOrThrow(index, x => x?.getOrNull()?.borrowOrNull())
+    console.log(index, "borrowed")
 
-  //   console.log("borrowing", index)
+    const socket = value.get()
 
-  //   const resource = borrow.get()
-  //   const socket = resource.get()
+    socket.send("hello world")
 
-  //   socket.send("hello world")
+    const event = await new Promise<MessageEvent>(ok => socket.addEventListener("message", ok))
 
-  //   const event = await new Promise<MessageEvent>(ok => socket.addEventListener("message", ok))
+    console.log(index, "got", event.data)
+  }
 
-  //   console.log("got", event.data)
-
-  //   console.log("returning", index)
-  // }
+  borrow()
+  borrow()
+  borrow()
 
   await new Promise(ok => setTimeout(ok, 5000))
 
