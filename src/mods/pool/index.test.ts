@@ -44,37 +44,94 @@ test("basic", async ({ test, wait }) => {
     return Disposer.wrap(resource, onDelete)
   }
 
-  using pool = new AutoPool(create, 3)
+  using pool = new AutoPool(create, 1)
 
-  async function borrow() {
-    using borrow = await pool.waitRandomOrThrow(x => x?.getOrNull()?.borrowOrNull())
+  // async function borrow() {
+  //   using borrow = await pool.waitRandomOrThrow(x => x?.getOrNull()?.borrowOrNull())
 
-    const { index, value } = borrow.get()
+  //   const { index, value } = borrow.get()
+
+  //   console.log(index, "borrowed")
+
+  //   const socket = value.get()
+
+  //   // socket.close()
+
+  //   // await new Promise(ok => socket.addEventListener("close", ok))
+
+  //   socket.send("hello")
+
+  //   const event = await new Promise<MessageEvent>(ok => socket.addEventListener("message", ok))
+
+  //   console.log(index, "got", event.data)
+
+  //   console.log(index, "returning")
+  // }
+
+  // borrow()
+  // borrow()
+
+  async function subcreate(params: PoolCreatorParams) {
+    const { index } = params
+
+    const entry = pool.getAnyOrThrow(index)
+    const borrow = entry.getOrThrow().borrowOrThrow()
 
     console.log(index, "borrowed")
 
-    const socket = value.get()
+    const socket = borrow.get().get().get()
 
-    // socket.close()
+    const onClose = () => {
+      console.log(index, "subclosed")
 
-    // await new Promise(ok => socket.addEventListener("close", ok))
+      pool.delete(index)
+    }
+
+    socket.addEventListener("close", onClose)
+
+    const onDelete = () => {
+      console.log(index, "subdeleted")
+
+      socket.removeEventListener("close", onClose)
+    }
+
+    return Disposer.wrap(borrow, onDelete)
+  }
+
+  using subpool = new AutoPool(subcreate, 1)
+
+  async function subborrow() {
+    using borrow = await subpool.waitRandomOrThrow(x => x?.getOrNull()?.borrowOrNull())
+
+    const { index, value } = borrow.get()
+
+    console.log(index, "subborrowed")
+
+    const socket = value.get().get().get()
 
     socket.send("hello")
 
     const event = await new Promise<MessageEvent>(ok => socket.addEventListener("message", ok))
 
-    console.log(index, "got", event.data)
+    console.log(index, "subgot", event.data)
 
-    console.log(index, "returning")
+    console.log(index, "subreturning")
   }
 
-  borrow()
-  borrow()
+  pool.events.on("update", async (i) => {
+    const entry = subpool.getAnyOrNull(i)
+
+    if (entry == null)
+      return
+    if (entry.isOk())
+      return
+
+    subpool.delete(i)
+  })
+
+  subborrow()
 
   await new Promise(ok => setTimeout(ok, 10000))
-
-  for (const entry of pool)
-    console.log(entry)
 
   console.log("ending")
 })
