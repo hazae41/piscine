@@ -58,17 +58,13 @@ export class PoolItem<T extends Disposable> extends Box<Indexed<T>> {
   }
 
   [Symbol.dispose]() {
-    const owned = this.owned
-
-    if (owned)
-      this.clean[Symbol.dispose]()
+    if (this.dropped)
+      return
+    this.clean[Symbol.dispose]()
 
     super[Symbol.dispose]()
 
-    if (owned)
-      this.pool.delete(this.value.index)
-
-    return
+    this.pool.delete(this.value.index)
   }
 
   moveOrNull() {

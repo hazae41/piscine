@@ -2,7 +2,6 @@ import "@hazae41/symbol-dispose-polyfill"
 
 import { Disposer } from "@hazae41/box"
 import { test } from "@hazae41/phobos"
-import { Catched, Err } from "@hazae41/result"
 import { AutoPool, PoolCreatorParams } from "./index.js"
 
 test("basic", async ({ test, wait }) => {
@@ -14,9 +13,9 @@ test("basic", async ({ test, wait }) => {
     const socket = new WebSocket(`wss://echo.websocket.org/`)
 
     const onDestroy = () => {
-      socket.close()
+      console.log(index, "destroyed")
 
-      console.log(index, "destroying")
+      socket.close()
     }
 
     const resource = Disposer.wrap(socket, onDestroy)
@@ -26,25 +25,26 @@ test("basic", async ({ test, wait }) => {
 
     console.log(index, "created")
 
-    const onError = (error: unknown) => {
-      pool.set(index, new Err(Catched.wrap(error)))
+    const onClose = () => {
+      console.log(index, "closed")
+
+      pool.delete(index)
+
       pool.start(index, create)
     }
 
-    socket.addEventListener("error", onError)
-    socket.addEventListener("close", onError)
+    socket.addEventListener("close", onClose)
 
     const onDelete = () => {
-      socket.removeEventListener("error", onError)
-      socket.removeEventListener("close", onError)
+      console.log(index, "deleted")
 
-      console.log(index, "deleting")
+      socket.removeEventListener("close", onClose)
     }
 
     return Disposer.wrap(resource, onDelete)
   }
 
-  using pool = new AutoPool(create, 2)
+  using pool = new AutoPool(create, 1)
 
   async function borrow() {
     using borrow = await pool.waitRandomOrThrow(x => x?.getOrNull()?.borrowOrNull())
@@ -55,18 +55,21 @@ test("basic", async ({ test, wait }) => {
 
     const socket = value.get()
 
-    socket.send("hello world")
+    socket.close()
 
-    const event = await new Promise<MessageEvent>(ok => socket.addEventListener("message", ok))
+    await new Promise(ok => socket.addEventListener("close", ok))
 
-    console.log(index, "got", event.data)
+    // const event = await new Promise<MessageEvent>(ok => socket.addEventListener("message", ok))
+
+    // console.log(index, "got", event.data)
+
+    console.log(index, "returning")
   }
 
   borrow()
   borrow()
-  borrow()
 
-  await new Promise(ok => setTimeout(ok, 5000))
+  await new Promise(ok => setTimeout(ok, 10000))
 
   console.log("ending")
 })
