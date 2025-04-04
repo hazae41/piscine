@@ -29,8 +29,6 @@ test("basic", async ({ test, wait }) => {
       console.log(index, "closed")
 
       pool.delete(index)
-
-      pool.start(index, create)
     }
 
     socket.addEventListener("close", onClose)
@@ -44,7 +42,7 @@ test("basic", async ({ test, wait }) => {
     return Disposer.wrap(resource, onDelete)
   }
 
-  using pool = new AutoPool(create, 1)
+  using pool = new AutoPool(create, 3)
 
   async function borrow() {
     using borrow = await pool.waitRandomOrThrow(x => x?.getOrNull()?.borrowOrNull())
@@ -68,6 +66,9 @@ test("basic", async ({ test, wait }) => {
 
   borrow()
   borrow()
+
+  for (const entry of pool)
+    console.log(entry)
 
   await new Promise(ok => setTimeout(ok, 10000))
 

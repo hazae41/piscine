@@ -152,12 +152,7 @@ export class Pool<T extends Disposable> {
     this.#entries.length = 0
   }
 
-  /**
-   * Delete the entry at the given index and return it
-   * @param index 
-   * @returns 
-   */
-  delete(index: number) {
+  #delete(index: number) {
     const previous = this.#entries.at(index)
 
     if (previous == null)
@@ -179,7 +174,7 @@ export class Pool<T extends Disposable> {
    * @param result 
    * @returns 
    */
-  set(index: number, result: Result<Disposer<T>, Error>) {
+  #set(index: number, result: Result<Disposer<T>, Error>) {
     if (result.isOk()) {
       const { value, clean } = result.get()
 
@@ -187,7 +182,7 @@ export class Pool<T extends Disposable> {
       const item = new PoolItem(this, indexed, clean)
       const entry = new Ok(item)
 
-      this.delete(index)
+      this.#delete(index)
 
       this.#entries[index] = entry
 
@@ -198,7 +193,7 @@ export class Pool<T extends Disposable> {
       const value = result.getErr()
       const entry = new Err(value)
 
-      this.delete(index)
+      this.#delete(index)
 
       this.#entries[index] = entry
 
@@ -206,6 +201,25 @@ export class Pool<T extends Disposable> {
 
       return entry
     }
+  }
+
+  /**
+   * Set the entry at the given index and return it
+   * @param index 
+   * @param result 
+   * @returns 
+   */
+  set(index: number, result: Result<Disposer<T>, Error>) {
+    this.#set(index, result)
+  }
+
+  /**
+   * Delete the entry at the given index and return it
+   * @param index 
+   * @returns 
+   */
+  delete(index: number) {
+    this.#delete(index)
   }
 
   update(index: number) {
@@ -411,7 +425,7 @@ export class StartPool<T extends Disposable> extends Pool<T> {
 
       stack.array.length = 0
 
-      this.set(index, new Ok(disposer))
+      super.set(index, new Ok(disposer))
     } catch (e: unknown) {
       if (signal.aborted)
         return
@@ -419,17 +433,12 @@ export class StartPool<T extends Disposable> extends Pool<T> {
 
       const value = Catched.wrap(e)
 
-      this.set(index, new Err(value))
+      super.set(index, new Err(value))
     }
   }
 
-  /**
-   * Start the given index
-   * @param index 
-   * @returns 
-   */
-  start(index: number, creator: PoolCreator<T>) {
-    this.abort(index)
+  #start(index: number, creator: PoolCreator<T>) {
+    this.#abort(index)
 
     const aborter = new AbortController()
     this.#aborters[index] = aborter
@@ -438,12 +447,7 @@ export class StartPool<T extends Disposable> extends Pool<T> {
     this.#create(index, creator, signal)
   }
 
-  /**
-   * Abort the given index
-   * @param index 
-   * @returns 
-   */
-  abort(index: number) {
+  #abort(index: number) {
     const aborter = this.#aborters.at(index)
 
     if (aborter != null)
@@ -452,10 +456,36 @@ export class StartPool<T extends Disposable> extends Pool<T> {
     delete this.#aborters[index]
   }
 
+  /**
+   * Start the given index
+   * @param index 
+   * @returns 
+   */
+  start(index: number, creator: PoolCreator<T>) {
+    this.#start(index, creator)
+  }
+
+  /**
+   * Abort the given index
+   * @param index 
+   * @returns 
+   */
+  abort(index: number) {
+    this.#abort(index)
+  }
+
 }
 
 export class AutoPool<T extends Disposable> extends StartPool<T> {
 
+  #state = "started"
+
+  /**
+   * An automatic pool or startable items
+   * @param creator 
+   * @param capacity 
+   * @returns 
+   */
   constructor(
     readonly creator: PoolCreator<T>,
     readonly capacity: number
@@ -463,9 +493,38 @@ export class AutoPool<T extends Disposable> extends StartPool<T> {
     super()
 
     for (let i = 0; i < capacity; i++)
-      this.start(i, creator)
+      this.delete(i)
 
     return this
+  }
+
+  [Symbol.dispose]() {
+    this.#state = "stopped"
+    super[Symbol.dispose]()
+  }
+
+  set(index: number, result: Result<Disposer<T>, Error>): never {
+    throw new Error("Disallowed")
+  }
+
+  start(index: number, creator: PoolCreator<T>): never {
+    throw new Error("Disallowed")
+  }
+
+  abort(index: number): never {
+    throw new Error("Disallowed")
+  }
+
+  delete(index: number): void {
+    if (index >= this.capacity)
+      return
+
+    super.set(index, new Err(new EmptySlotError()))
+
+    if (this.#state === "stopped")
+      return
+
+    super.start(index, this.creator)
   }
 
 }
