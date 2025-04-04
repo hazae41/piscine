@@ -13,9 +13,11 @@ test("basic", async ({ test, wait }) => {
     const socket = new WebSocket(`wss://echo.websocket.org/`)
 
     const onDestroy = () => {
-      console.log(index, "destroyed")
+      console.log(index, "destroying")
 
       socket.close()
+
+      console.log(index, "destroyed")
     }
 
     const resource = Disposer.wrap(socket, onDestroy)
@@ -53,13 +55,15 @@ test("basic", async ({ test, wait }) => {
 
     const socket = value.get()
 
-    socket.close()
+    // socket.close()
 
-    await new Promise(ok => socket.addEventListener("close", ok))
+    // await new Promise(ok => socket.addEventListener("close", ok))
 
-    // const event = await new Promise<MessageEvent>(ok => socket.addEventListener("message", ok))
+    socket.send("hello")
 
-    // console.log(index, "got", event.data)
+    const event = await new Promise<MessageEvent>(ok => socket.addEventListener("message", ok))
+
+    console.log(index, "got", event.data)
 
     console.log(index, "returning")
   }
@@ -67,10 +71,10 @@ test("basic", async ({ test, wait }) => {
   borrow()
   borrow()
 
+  await new Promise(ok => setTimeout(ok, 10000))
+
   for (const entry of pool)
     console.log(entry)
-
-  await new Promise(ok => setTimeout(ok, 10000))
 
   console.log("ending")
 })
