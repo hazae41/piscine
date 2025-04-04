@@ -17,3 +17,4 @@ npm i @hazae41/piscine
 - Automatic retry
 - Get a fast random value using Math's PRNG
 - Get a secure random value using WebCrypto's CSPRNG
+- Rust-like resource borrowing and moving
