@@ -30,6 +30,8 @@ test("basic", async ({ test, wait }) => {
     const onEntryClean = () => {
       socket.removeEventListener("error", onError)
       socket.removeEventListener("close", onError)
+
+      pool.delete(index)
     }
 
     return Disposer.wrap(resource, onEntryClean)
@@ -47,7 +49,7 @@ test("basic", async ({ test, wait }) => {
 
     console.log("borrowing", index)
 
-    const resource = borrow.getOrThrow()
+    const resource = borrow.get()
     const socket = resource.get()
 
     socket.send("hello world")

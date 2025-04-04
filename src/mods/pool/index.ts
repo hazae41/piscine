@@ -5,9 +5,10 @@ import { Nullable } from "@hazae41/option";
 import { Plume, SuperEventTarget } from "@hazae41/plume";
 import { Catched, Err, Ok, Result } from "@hazae41/result";
 
-export type PoolEntry<T> =
-  | PoolOkEntry<T>
-  | PoolErrEntry
+export interface Indexed<T> {
+  readonly index: number
+  readonly value: T
+}
 
 export class PoolItem<T extends Disposable> extends Box<T> {
 
@@ -73,31 +74,9 @@ export class PoolItem<T extends Disposable> extends Box<T> {
 
 }
 
-export class PoolOkEntry<T> extends Ok<T> {
-
-  constructor(
-    readonly index: number,
-    readonly value: T
-  ) {
-    super(value)
-  }
-
-}
-
-export class PoolErrEntry extends Err<Error> {
-
-  constructor(
-    readonly index: number,
-    readonly value: Error
-  ) {
-    super(value)
-  }
-
-}
-
-export type PoolEvents<T extends Disposable> = {
-  ready: (entry: PoolOkEntry<PoolItem<T>>) => void
-  error: (entry: PoolErrEntry) => void
+export type PoolEvents = {
+  ready: (index: number) => void
+  error: (index: number) => void
 }
 
 export class EmptyPoolError extends Error {
@@ -122,12 +101,12 @@ export class EmptySlotError extends Error {
 
 export class Pool<T extends Disposable> {
 
-  readonly events = new SuperEventTarget<PoolEvents<T>>()
+  readonly events = new SuperEventTarget<PoolEvents>()
 
   /**
    * Sparse entries by index
    */
-  readonly #entries = new Array<PoolEntry<PoolItem<T>>>()
+  readonly #entries = new Array<Result<PoolItem<T>>>()
 
   /**
    * A pool of disposable items
@@ -177,24 +156,24 @@ export class Pool<T extends Disposable> {
       const disposer = result.get()
 
       const item = new PoolItem(this, index, disposer.value, disposer.clean)
-      const entry = new PoolOkEntry(index, item)
+      const entry = new Ok(item)
 
       this.delete(index)
 
       this.#entries[index] = entry
 
-      this.events.emit("ready", entry).catch(console.error)
+      this.events.emit("ready", index).catch(console.error)
 
       return entry
     } else {
       const value = result.getErr()
-      const entry = new PoolErrEntry(index, value)
+      const entry = new Err(value)
 
       this.delete(index)
 
       this.#entries[index] = entry
 
-      this.events.emit("error", entry).catch(console.error)
+      this.events.emit("error", index).catch(console.error)
 
       return entry
     }
@@ -208,7 +187,7 @@ export class Pool<T extends Disposable> {
     if (entry.isErr())
       return
 
-    this.events.emit("ready", entry).catch(console.error)
+    this.events.emit("ready", index).catch(console.error)
   }
 
   /**
@@ -216,7 +195,7 @@ export class Pool<T extends Disposable> {
    * @param index 
    * @returns 
    */
-  getAnyOrNull(index: number): Nullable<PoolEntry<PoolItem<T>>> {
+  getAnyOrNull(index: number): Nullable<Result<PoolItem<T>>> {
     return this.#entries.at(index)
   }
 
@@ -225,7 +204,7 @@ export class Pool<T extends Disposable> {
    * @param index 
    * @returns 
    */
-  getAnyOrThrow(index: number): PoolEntry<PoolItem<T>> {
+  getAnyOrThrow(index: number): Result<PoolItem<T>> {
     const entry = this.#entries.at(index)
 
     if (entry == null)
@@ -235,7 +214,7 @@ export class Pool<T extends Disposable> {
   }
 
   /**
-   * Get the item at the given index or null if not available
+   * Get the item at the given index or null if empty or errored
    * @param index 
    * @returns 
    */
@@ -247,11 +226,11 @@ export class Pool<T extends Disposable> {
     if (entry.isErr())
       return
 
-    return entry.get().checkOrNull()
+    return entry.get()
   }
 
   /**
-   * Get the item at the given index or throw if not available
+   * Get the item at the given index or throw if empty or errored
    * @param index 
    * @returns 
    */
@@ -260,10 +239,8 @@ export class Pool<T extends Disposable> {
 
     if (entry == null)
       throw new EmptySlotError()
-    if (entry.isErr())
-      throw entry.getErr()
 
-    return entry.get().checkOrThrow()
+    return entry.getOrThrow()
   }
 
   /**
@@ -271,7 +248,7 @@ export class Pool<T extends Disposable> {
    * @returns 
    */
   getRandomOrThrow(): PoolItem<T> {
-    const entry = Arrays.random([...this.#entries.filter(x => x != null && x.isOk() && x.get().owned) as PoolOkEntry<PoolItem<T>>[]])
+    const entry = Arrays.random([...this.#entries.filter(x => x != null && x.isOk() && x.get().owned) as Ok<PoolItem<T>>[]])
 
     if (entry == null)
       throw new EmptyPoolError()
@@ -284,7 +261,7 @@ export class Pool<T extends Disposable> {
    * @returns 
    */
   getCryptoRandomOrThrow(): PoolItem<T> {
-    const entry = Arrays.cryptoRandom([...this.#entries.filter(x => x != null && x.isOk() && x.get().owned) as PoolOkEntry<PoolItem<T>>[]])
+    const entry = Arrays.cryptoRandom([...this.#entries.filter(x => x != null && x.isOk() && x.get().owned) as Ok<PoolItem<T>>[]])
 
     if (entry == null)
       throw new EmptyPoolError()
@@ -298,15 +275,45 @@ export class Pool<T extends Disposable> {
    * @param signal 
    * @returns 
    */
-  async getOrWaitOrThrow(index: number, signal = new AbortController().signal): Promise<PoolItem<T>> {
+  async getOrWaitOrThrow(index: number, signal = new AbortController().signal): Promise<T> {
     while (true) {
       const entry = this.#entries.at(index)
 
-      if (entry != null && entry.isOk() && entry.value.owned)
-        return entry.get()
+      if (entry != null && entry.isOk())
+        return entry.get().get()
 
-      await Plume.waitOrThrow(this.events, "ready", (f: Future<void>, x) => {
-        if (x.index !== index)
+      await Plume.waitOrThrow(this.events, "ready", (f: Future<void>, i) => {
+        if (i !== index)
+          return
+        f.resolve()
+      }, signal)
+    }
+  }
+
+  async unwrapOrWaitOrThrow(index: number, signal = new AbortController().signal): Promise<T> {
+    while (true) {
+      const entry = this.#entries.at(index)
+
+      if (entry != null && entry.isOk() && entry.get().owned)
+        return entry.get().unwrapOrThrow()
+
+      await Plume.waitOrThrow(this.events, "ready", (f: Future<void>, i) => {
+        if (i !== index)
+          return
+        f.resolve()
+      }, signal)
+    }
+  }
+
+  async moveOrWaitOrThrow(index: number, signal = new AbortController().signal): Promise<Box<T>> {
+    while (true) {
+      const entry = this.#entries.at(index)
+
+      if (entry != null && entry.isOk() && entry.get().owned)
+        return entry.get().moveOrThrow()
+
+      await Plume.waitOrThrow(this.events, "ready", (f: Future<void>, i) => {
+        if (i !== index)
           return
         f.resolve()
       }, signal)
@@ -317,11 +324,11 @@ export class Pool<T extends Disposable> {
     while (true) {
       const entry = this.#entries.at(index)
 
-      if (entry != null && entry.isOk() && entry.value.owned)
+      if (entry != null && entry.isOk() && entry.get().owned)
         return entry.get().borrowOrThrow()
 
-      await Plume.waitOrThrow(this.events, "ready", (f: Future<void>, x) => {
-        if (x.index !== index)
+      await Plume.waitOrThrow(this.events, "ready", (f: Future<void>, i) => {
+        if (i !== index)
           return
         f.resolve()
       }, signal)
@@ -333,9 +340,9 @@ export class Pool<T extends Disposable> {
    * @param signal 
    * @returns 
    */
-  async getRandomOrWaitOrThrow(signal = new AbortController().signal): Promise<PoolItem<T>> {
+  async getRandomOrWaitOrThrow(signal = new AbortController().signal): Promise<Indexed<T>> {
     while (true) {
-      const entry = Arrays.random([...this.#entries.filter(x => x != null && x.isOk() && x.get().owned) as PoolOkEntry<PoolItem<T>>[]])
+      const entry = Arrays.random([...this.#entries.filter(x => x != null && x.isOk() && x.get().owned) as Ok<PoolItem<T>>[]])
 
       if (entry != null)
         return entry.get()
@@ -351,9 +358,9 @@ export class Pool<T extends Disposable> {
    * @param signal 
    * @returns 
    */
-  async getCryptoRandomOrWaitOrThrow(signal = new AbortController().signal): Promise<PoolItem<T>> {
+  async getCryptoRandomOrWaitOrThrow(signal = new AbortController().signal): Promise<Indexed<T>> {
     while (true) {
-      const entry = Arrays.cryptoRandom([...this.#entries.filter(x => x != null && x.isOk() && x.get().owned) as PoolOkEntry<PoolItem<T>>[]])
+      const entry = Arrays.cryptoRandom([...this.#entries.filter(x => x != null && x.isOk() && x.get().owned) as Ok<PoolItem<T>>[]])
 
       if (entry != null)
         return entry.get()
