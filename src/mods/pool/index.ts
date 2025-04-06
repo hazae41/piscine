@@ -373,13 +373,9 @@ export class Pool<T extends Disposable> {
 
 }
 
-export interface PoolCreatorParams {
-  readonly index: number
-  readonly signal: AbortSignal
-}
-
 export type PoolCreator<T> = (
-  params: PoolCreatorParams
+  index: number,
+  signal: AbortSignal,
 ) => Promise<Disposer<T>>
 
 export class StartPool<T extends Disposable> extends Pool<T> {
@@ -407,7 +403,7 @@ export class StartPool<T extends Disposable> extends Pool<T> {
 
   async #create(index: number, creator: PoolCreator<T>, signal: AbortSignal) {
     try {
-      const disposer = await creator({ index, signal })
+      const disposer = await creator(index, signal)
 
       using stack = new Stack()
 
