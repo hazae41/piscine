@@ -1,6 +1,6 @@
 import "@hazae41/symbol-dispose-polyfill"
 
-import { Box, Deferred, Disposer, Stack } from "@hazae41/box"
+import { Box, Deferred, Ref, Stack } from "@hazae41/box"
 import { Future } from "@hazae41/future"
 import { test } from "@hazae41/phobos"
 import { AutoPool } from "./index.js"
@@ -31,10 +31,10 @@ await test("example", async ({ test, wait }) => {
     const socket = new WebSocket("wss://echo.websocket.org/")
     await openOrThrow(socket, signal)
 
-    const resource = Disposer.wrap(socket, () => socket.close())
+    const resource = Pin.with(socket, () => socket.close())
 
-    using entry = new Box(resource)
-    using stack = new Box(new Stack())
+    using entry = Box.from(resource)
+    using stack = Box.from(new Stack())
 
     const onClose = () => pool.delete(index)
 
@@ -44,15 +44,15 @@ await test("example", async ({ test, wait }) => {
     const unentry = entry.unwrapOrThrow()
     const unstack = stack.unwrapOrThrow()
 
-    return Disposer.wrap(unentry, () => unstack[Symbol.dispose]())
+    return Pin.with(unentry, () => unstack[Symbol.dispose]())
   }
 
   // Launch a pool of 10 sockets
-  using pool = new AutoPool<Disposer<WebSocket>>(createOrThrow, 10)
+  using pool = new AutoPool<Pin<WebSocket>>(createOrThrow, 10)
 
   {
     // Borrow socket 0 when it's available
-    using borrow = await pool.waitOrThrow(0, x => x?.getOrNull()?.borrowOrNull())
+    using borrow = await pool.getOrWaitOrThrow(0, x => x?.getOrNull()?.borrowOrNull())
     const socket = borrow.get().get().get()
 
     socket.send("hello")
@@ -64,7 +64,7 @@ await test("example", async ({ test, wait }) => {
 
   {
     // Take a random available socket and automatically start creating a new one
-    using taken = await pool.waitRandomOrThrow(x => x?.getOrNull()?.unwrapOrNull())
+    using taken = await pool.getRandomOrWaitOrThrow(x => x?.getOrNull()?.unwrapOrNull())
     const socket = taken.get().get()
 
     socket.send("hello")
@@ -105,7 +105,7 @@ await test("basic", async ({ test, wait }) => {
       console.log(index, "destroyed")
     }
 
-    const resource = Disposer.wrap(socket, onDestroy)
+    const resource = Ref.with(socket, onDestroy)
 
     await new Promise(ok => socket.addEventListener("open", ok))
     await new Promise(ok => socket.addEventListener("message", ok))
@@ -126,7 +126,7 @@ await test("basic", async ({ test, wait }) => {
       socket.removeEventListener("close", onClose)
     }
 
-    return Disposer.wrap(resource, onDelete)
+    return Pin.with(resource, onDelete)
   }
 
   using pool = new AutoPool(create, 1)
@@ -167,24 +167,25 @@ await test("basic", async ({ test, wait }) => {
     const onClose = () => {
       console.log(index, "subclosed")
 
-      pool.delete(index)
+      pool.delete(index) // use count
     }
 
     socket.addEventListener("close", onClose)
 
     const onDelete = () => {
+      console.log("lol")
       console.log(index, "subdeleted")
 
       socket.removeEventListener("close", onClose)
     }
 
-    return Disposer.wrap(borrow, onDelete)
+    return Ref.with(borrow, onDelete)
   }
 
   using subpool = new AutoPool(subcreate, 1)
 
   async function subborrow() {
-    using borrow = await subpool.waitRandomOrThrow(x => x?.getOrNull()?.borrowOrNull())
+    using borrow = await subpool.getRandomOrWaitOrThrow(x => x?.getOrNull()?.borrowOrNull())
 
     const { index, value } = borrow.get()
 
