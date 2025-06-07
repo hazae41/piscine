@@ -3,7 +3,7 @@ import "@hazae41/symbol-dispose-polyfill"
 import { Box, Deferred, Ref, Stack } from "@hazae41/box"
 import { Future } from "@hazae41/future"
 import { test } from "@hazae41/phobos"
-import { AutoPool } from "./index.js"
+import { AutoPool, Item } from "./index.js"
 
 await test("example", async ({ test, wait }) => {
   async function openOrThrow(socket: WebSocket, signal: AbortSignal) {
@@ -31,10 +31,10 @@ await test("example", async ({ test, wait }) => {
     const socket = new WebSocket("wss://echo.websocket.org/")
     await openOrThrow(socket, signal)
 
-    const resource = Pin.with(socket, () => socket.close())
+    const resource = Ref.with(socket, () => socket.close())
 
-    using entry = Box.from(resource)
-    using stack = Box.from(new Stack())
+    using entry = Box.wrap(resource)
+    using stack = Box.wrap(new Stack())
 
     const onClose = () => pool.delete(index)
 
@@ -44,15 +44,15 @@ await test("example", async ({ test, wait }) => {
     const unentry = entry.unwrapOrThrow()
     const unstack = stack.unwrapOrThrow()
 
-    return Pin.with(unentry, () => unstack[Symbol.dispose]())
+    return new Item(unentry, unstack)
   }
 
   // Launch a pool of 10 sockets
-  using pool = new AutoPool<Pin<WebSocket>>(createOrThrow, 10)
+  using pool = new AutoPool<Item<Ref<WebSocket>>>(createOrThrow, 10)
 
   {
     // Borrow socket 0 when it's available
-    using borrow = await pool.getOrWaitOrThrow(0, x => x?.getOrNull()?.borrowOrNull())
+    using borrow = await pool.getOrWait(0, x => x?.getOrNull()?.borrowOrNull())
     const socket = borrow.get().get().get()
 
     socket.send("hello")
@@ -64,7 +64,7 @@ await test("example", async ({ test, wait }) => {
 
   {
     // Take a random available socket and automatically start creating a new one
-    using taken = await pool.getRandomOrWaitOrThrow(x => x?.getOrNull()?.unwrapOrNull())
+    using taken = await pool.getRandomOrWait(x => x?.getOrNull()?.unwrapOrNull())
     const socket = taken.get().get()
 
     socket.send("hello")
@@ -157,7 +157,7 @@ await test("basic", async ({ test, wait }) => {
   // borrow()
 
   async function subcreate(index: number, signal: AbortSignal) {
-    const entry = pool.getAnyOrThrow(index)
+    const entry = pool.getOrThrow(index)
     const borrow = entry.getOrThrow().borrowOrThrow()
 
     console.log(index, "borrowed")
@@ -185,7 +185,7 @@ await test("basic", async ({ test, wait }) => {
   using subpool = new AutoPool(subcreate, 1)
 
   async function subborrow() {
-    using borrow = await subpool.getRandomOrWaitOrThrow(x => x?.getOrNull()?.borrowOrNull())
+    using borrow = await subpool.getRandomOrWait(x => x?.getOrNull()?.borrowOrNull())
 
     const { index, value } = borrow.get()
 
@@ -203,7 +203,7 @@ await test("basic", async ({ test, wait }) => {
   }
 
   pool.events.on("update", async (i) => {
-    const entry = subpool.getAnyOrNull(i)
+    const entry = subpool.getOrNull(i)
 
     if (entry == null)
       return
