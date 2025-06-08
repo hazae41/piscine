@@ -65,14 +65,38 @@ export class Item<T extends Disposable> {
     this.value[Symbol.dispose]()
   }
 
+  get dropped() {
+    return this.#dropped
+  }
+
+  get borrowed() {
+    return this.#borrow != null
+  }
+
   get() {
     return this.value
   }
 
-  unwrapOrNull() {
-    if (this.#dropped)
+  checkOrNull() {
+    if (this.dropped)
       return
-    if (this.#borrow != null)
+    if (this.borrowed)
+      return
+    return this
+  }
+
+  checkOrThrow() {
+    if (this.dropped)
+      throw new Error()
+    if (this.borrowed)
+      throw new Error()
+    return this
+  }
+
+  unwrapOrNull() {
+    if (this.dropped)
+      return
+    if (this.borrowed)
       return
     this.#dropped = true
 
@@ -81,10 +105,23 @@ export class Item<T extends Disposable> {
     return this.value
   }
 
+  unwrapOrThrow() {
+    if (this.dropped)
+      throw new Error()
+    if (this.borrowed)
+      throw new Error()
+
+    this.#dropped = true
+
+    this.clean[Symbol.dispose]()
+
+    return this.value
+  }
+
   borrowOrNull() {
-    if (this.#dropped)
+    if (this.dropped)
       return
-    if (this.#borrow != null)
+    if (this.borrowed)
       return
 
     const { promise, resolve } = new Future<void>()
@@ -105,14 +142,31 @@ export class Item<T extends Disposable> {
     return new Ref(this, new Deferred(dispose))
   }
 
-}
+  borrowOrThrow() {
+    if (this.dropped)
+      throw new Error()
+    if (this.borrowed)
+      throw new Error()
 
-/**
- * - clean outer on dispose
- * - clean inner on dispose
- * - clean outer on move
- * - update mechanism?
- */
+    const { promise, resolve } = new Future<void>()
+
+    this.#borrow = promise
+
+    const dispose = () => {
+      this.#borrow = undefined
+
+      resolve()
+
+      if (!this.#dropped)
+        return
+
+      this.value[Symbol.dispose]()
+    }
+
+    return new Ref(this, new Deferred(dispose))
+  }
+
+}
 
 export class Pool<T extends Disposable> {
 
