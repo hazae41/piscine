@@ -3,6 +3,7 @@ import { Deferred, Ref, Stack } from "@hazae41/box";
 import { Future } from "@hazae41/future";
 import { Nullable } from "@hazae41/option";
 import { Catched, Err, Ok, Result } from "@hazae41/result";
+import { Promiseable } from "libs/promise/index.js";
 
 export class EmptyPoolError extends Error {
   readonly #class = EmptyPoolError
@@ -77,6 +78,35 @@ export class Item<T extends Disposable> {
     return this.value
   }
 
+  getOrNull() {
+    if (this.dropped)
+      return
+    if (this.borrowed)
+      return
+    return this.value
+  }
+
+  getOrThrow() {
+    if (this.dropped)
+      throw new Error()
+    if (this.borrowed)
+      throw new Error()
+    return this.value
+  }
+
+  async getOrWait() {
+    while (true) {
+      if (!this.dropped)
+        break
+      if (!this.borrowed)
+        break
+
+      await this.#borrow
+    }
+
+    return this.value
+  }
+
   checkOrNull() {
     if (this.dropped)
       return
@@ -118,6 +148,23 @@ export class Item<T extends Disposable> {
     return this.value
   }
 
+  async unwrapOrWait() {
+    while (true) {
+      if (!this.dropped)
+        break
+      if (!this.borrowed)
+        break
+
+      await this.#borrow
+    }
+
+    this.#dropped = true
+
+    this.clean[Symbol.dispose]()
+
+    return this.value
+  }
+
   borrowOrNull() {
     if (this.dropped)
       return
@@ -147,6 +194,34 @@ export class Item<T extends Disposable> {
       throw new Error()
     if (this.borrowed)
       throw new Error()
+
+    const { promise, resolve } = new Future<void>()
+
+    this.#borrow = promise
+
+    const dispose = () => {
+      this.#borrow = undefined
+
+      resolve()
+
+      if (!this.#dropped)
+        return
+
+      this.value[Symbol.dispose]()
+    }
+
+    return new Ref(this, new Deferred(dispose))
+  }
+
+  async borrowOrWait() {
+    while (true) {
+      if (!this.dropped)
+        break
+      if (!this.borrowed)
+        break
+
+      await this.#borrow
+    }
 
     const { promise, resolve } = new Future<void>()
 
@@ -307,15 +382,15 @@ export class Pool<T extends Disposable> {
     return value
   }
 
-  async getOrWait<U>(index: number, filter: (x: Nullable<Indexed<T>>) => Nullable<U>, promise: Promise<void>): Promise<U> {
+  async getOrWait<U>(index: number, filter: (x: Nullable<Indexed<T>>) => Promiseable<Nullable<U>>): Promise<U> {
     while (true) {
       const entry = this.#entries.at(index)
-      const value = filter(entry)
+      const value = await filter(entry)
 
       if (value != null)
         return value
 
-      await promise
+      continue
     }
   }
 

@@ -52,7 +52,17 @@ await test("example", async ({ test, wait }) => {
 
   {
     // Borrow socket 0 when it's available
-    using borrow = await pool.getOrThrow(0, x => x?.getOrNull()?.borrowOrNull())
+    using borrow = await pool.getOrWait(0, x => {
+      if (x == null)
+        return
+      const { value } = x
+
+      if (value.isErr())
+        return
+
+      return value.get().borrowOrWait()
+    })
+
     const socket = borrow.get().get().get()
 
     socket.send("hello")

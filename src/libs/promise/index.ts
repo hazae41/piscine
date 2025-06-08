@@ -1,0 +1,1 @@
+export type Promiseable<T> = Promise<T> | PromiseLike<T> | T
