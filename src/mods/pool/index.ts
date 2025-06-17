@@ -1,6 +1,6 @@
 import { Arrays } from "@hazae41/arrays";
-import { Deferred, Ref, Stack } from "@hazae41/box";
-import { Future } from "@hazae41/future";
+import { Borrow, Clone, Deferred, Ref, Stack } from "@hazae41/box";
+import { Mutex } from "@hazae41/mutex";
 import { Nullable } from "@hazae41/option";
 import { Catched, Err, Ok, Result } from "@hazae41/result";
 import { Promiseable } from "libs/promise/index.js";
@@ -42,203 +42,76 @@ export class Indexed<T extends Disposable> {
 
 }
 
-export class Item<T extends Disposable> {
-
-  #borrow?: Promise<void>
+export class Drop<T extends Disposable> {
 
   #dropped = false
 
   constructor(
-    readonly value: T,
+    readonly value: Borrow<T>,
     readonly clean: Disposable
   ) { }
 
   [Symbol.dispose]() {
+    this.clean[Symbol.dispose]() // delete from pool
+
     if (this.#dropped)
       return
     this.#dropped = true
 
-    this.clean[Symbol.dispose]()
-
-    if (this.#borrow != null)
-      return
-
     this.value[Symbol.dispose]()
-  }
-
-  get dropped() {
-    return this.#dropped
-  }
-
-  get borrowed() {
-    return this.#borrow != null
   }
 
   get() {
     return this.value
   }
 
-  getOrNull() {
-    if (this.dropped)
-      return
-    if (this.borrowed)
-      return
-    return this.value
-  }
-
-  getOrThrow() {
-    if (this.dropped)
-      throw new Error()
-    if (this.borrowed)
-      throw new Error()
-    return this.value
-  }
-
-  async getOrWait() {
-    while (true) {
-      if (!this.dropped)
-        break
-      if (!this.borrowed)
-        break
-
-      await this.#borrow
-    }
-
-    return this.value
-  }
-
-  checkOrNull() {
-    if (this.dropped)
-      return
-    if (this.borrowed)
-      return
-    return this
-  }
-
-  checkOrThrow() {
-    if (this.dropped)
-      throw new Error()
-    if (this.borrowed)
-      throw new Error()
-    return this
-  }
-
-  unwrapOrNull() {
-    if (this.dropped)
-      return
-    if (this.borrowed)
+  dropOrNull() {
+    if (this.#dropped)
       return
     this.#dropped = true
 
     this.clean[Symbol.dispose]()
 
     return this.value
+  }
+
+}
+
+export class Access<T> {
+
+
+}
+
+export class X<T extends Disposable> {
+
+  constructor(
+    readonly value: Clone<Mutex<T>>,
+    readonly clean: Disposable
+  ) { }
+
+  static wrap<T extends Disposable>(value: T, clean: Disposable) {
+    return new X(Clone.wrap(new Mutex(value)), clean)
+  }
+
+  [Symbol.dispose]() {
+    using _clean = this.clean
+    using _value = this.value
+  }
+
+  lockOrThrow() {
+    const cloned = this.value.clone()
+    const locked = cloned.get().lockOrThrow()
+
+    const dispose = () => {
+      using _locked = locked
+      using _cloned = cloned
+    }
+
+    return new Ref(locked.value, new Deferred(dispose))
   }
 
   unwrapOrThrow() {
-    if (this.dropped)
-      throw new Error()
-    if (this.borrowed)
-      throw new Error()
 
-    this.#dropped = true
-
-    this.clean[Symbol.dispose]()
-
-    return this.value
-  }
-
-  async unwrapOrWait() {
-    while (true) {
-      if (!this.dropped)
-        break
-      if (!this.borrowed)
-        break
-
-      await this.#borrow
-    }
-
-    this.#dropped = true
-
-    this.clean[Symbol.dispose]()
-
-    return this.value
-  }
-
-  borrowOrNull() {
-    if (this.dropped)
-      return
-    if (this.borrowed)
-      return
-
-    const { promise, resolve } = new Future<void>()
-
-    this.#borrow = promise
-
-    const dispose = () => {
-      this.#borrow = undefined
-
-      resolve()
-
-      if (!this.#dropped)
-        return
-
-      this.value[Symbol.dispose]()
-    }
-
-    return new Ref(this, new Deferred(dispose))
-  }
-
-  borrowOrThrow() {
-    if (this.dropped)
-      throw new Error()
-    if (this.borrowed)
-      throw new Error()
-
-    const { promise, resolve } = new Future<void>()
-
-    this.#borrow = promise
-
-    const dispose = () => {
-      this.#borrow = undefined
-
-      resolve()
-
-      if (!this.#dropped)
-        return
-
-      this.value[Symbol.dispose]()
-    }
-
-    return new Ref(this, new Deferred(dispose))
-  }
-
-  async borrowOrWait() {
-    while (true) {
-      if (!this.dropped)
-        break
-      if (!this.borrowed)
-        break
-
-      await this.#borrow
-    }
-
-    const { promise, resolve } = new Future<void>()
-
-    this.#borrow = promise
-
-    const dispose = () => {
-      this.#borrow = undefined
-
-      resolve()
-
-      if (!this.#dropped)
-        return
-
-      this.value[Symbol.dispose]()
-    }
-
-    return new Ref(this, new Deferred(dispose))
   }
 
 }

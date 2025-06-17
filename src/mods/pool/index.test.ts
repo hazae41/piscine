@@ -1,9 +1,9 @@
 import "@hazae41/symbol-dispose-polyfill"
 
-import { Box, Deferred, Ref, Stack } from "@hazae41/box"
+import { Deferred, Move, Ref, Stack } from "@hazae41/box"
 import { Future } from "@hazae41/future"
 import { test } from "@hazae41/phobos"
-import { AutoPool, Item } from "./index.js"
+import { AutoPool, X } from "./index.js"
 
 await test("example", async ({ test, wait }) => {
   async function openOrThrow(socket: WebSocket, signal: AbortSignal) {
@@ -33,8 +33,8 @@ await test("example", async ({ test, wait }) => {
 
     const resource = Ref.with(socket, () => socket.close())
 
-    using entry = Box.wrap(resource)
-    using stack = Box.wrap(new Stack())
+    using entry = Move.wrap(resource)
+    using stack = Move.wrap(new Stack())
 
     const onClose = () => pool.delete(index)
 
@@ -44,11 +44,13 @@ await test("example", async ({ test, wait }) => {
     const unentry = entry.unwrapOrThrow()
     const unstack = stack.unwrapOrThrow()
 
-    return new Item(unentry, unstack)
+    unstack.push(new Deferred(() => pool.delete(index)))
+
+    return X.wrap(unentry, unstack)
   }
 
   // Launch a pool of 10 sockets
-  using pool = new AutoPool<Item<Ref<WebSocket>>>(createOrThrow, 10)
+  using pool = new AutoPool<X<Ref<WebSocket>>>(createOrThrow, 10)
 
   {
     // Borrow socket 0 when it's available
