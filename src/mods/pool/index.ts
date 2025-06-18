@@ -77,11 +77,6 @@ export class Drop<T extends Disposable> {
 
 }
 
-export class Access<T> {
-
-
-}
-
 export class X<T extends Disposable> {
 
   #disposed = false
