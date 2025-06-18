@@ -1,5 +1,5 @@
 import { Arrays } from "@hazae41/arrays";
-import { Borrow, Clone, Stack } from "@hazae41/box";
+import { Clone, Stack } from "@hazae41/box";
 import { Mutex } from "@hazae41/mutex";
 import { Nullable } from "@hazae41/option";
 import { Catched, Err, Ok, Result } from "@hazae41/result";
@@ -47,7 +47,7 @@ export class Drop<T extends Disposable> {
   #dropped = false
 
   constructor(
-    readonly value: Borrow<T>,
+    readonly value: T,
     readonly clean: Disposable
   ) { }
 
