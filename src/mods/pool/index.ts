@@ -1,5 +1,5 @@
 import { Arrays } from "@hazae41/arrays";
-import { Borrow, Clone, Deferred, Ref, Stack } from "@hazae41/box";
+import { Borrow, Clone, Stack } from "@hazae41/box";
 import { Mutex } from "@hazae41/mutex";
 import { Nullable } from "@hazae41/option";
 import { Catched, Err, Ok, Result } from "@hazae41/result";
@@ -84,6 +84,8 @@ export class Access<T> {
 
 export class X<T extends Disposable> {
 
+  #disposed = false
+
   constructor(
     readonly value: Clone<Mutex<T>>,
     readonly clean: Disposable
@@ -94,24 +96,33 @@ export class X<T extends Disposable> {
   }
 
   [Symbol.dispose]() {
-    using _clean = this.clean
-    using _value = this.value
+    if (this.#disposed)
+      return
+    this.#disposed = true
+
+    using stack = new Stack()
+
+    stack.push(this.value)
+    stack.push(this.clean)
   }
 
   lockOrThrow() {
-    const cloned = this.value.clone()
-    const locked = cloned.get().lockOrThrow()
+    if (this.#disposed)
+      throw new Error()
 
-    const dispose = () => {
-      using _locked = locked
-      using _cloned = cloned
-    }
-
-    return new Ref(locked.value, new Deferred(dispose))
+    return Mutex.cloneAndLockOrThrow(this.value)
   }
 
-  unwrapOrThrow() {
+  moveOrThrow() {
+    if (this.#disposed)
+      throw new Error()
+    this.#disposed = true
 
+    using _ = this.clean
+
+    const value = this.value.get().getOrThrow()
+
+    return value
   }
 
 }
